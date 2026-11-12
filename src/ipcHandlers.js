@@ -1,0 +1,309 @@
+// === SERENA_RUNTIME_AUTOHOOK_START ===
+try {
+  const __p = require("path"), __f = require("fs");
+  const __cands = [__p.join(__dirname, "configuracoes"), __p.join(__dirname, "..", "configuracoes"), __p.join(__dirname, "..", "..", "configuracoes"), __p.join(process.cwd(), "configuracoes")];
+  if (process.resourcesPath) { __cands.push(__p.join(process.resourcesPath, "app", "configuracoes"), __p.join(process.resourcesPath, "configuracoes")); }
+  for (const __d of __cands) { const __h = __p.join(__d, "runtimeAutoHook.cjs"); if (__f.existsSync(__h)) { require(__h); break; } }
+} catch (_eAutoHook) {}
+// === SERENA_RUNTIME_AUTOHOOK_END ===
+/**
+ * ipcHandlers.js — registra todos os handlers IPC entre main e renderer
+ */
+const { ipcMain, dialog } = require('electron');
+const path  = require('path');
+const fs    = require('fs');
+const { pathToFileURL } = require('url');
+const { parse } = require('csv-parse/sync');
+const db        = require('./db');
+const wa        = require('./whatsapp');
+const scheduler = require('./scheduler');
+const holidays  = require('./holidays');
+const schedule  = require('./scheduleManager');
+
+async function executeFullSerenaReset() {
+  let result = { success: true };
+  try {
+    const engineUrl = pathToFileURL(path.join(__dirname, '..', 'serenaEngine.mjs')).href;
+    const serenaEngine = await import(engineUrl);
+    if (typeof serenaEngine.resetDatabase === 'function') {
+      result = await serenaEngine.resetDatabase();
+    }
+  } catch (e) {
+    console.error('⚠️ [SERENA] Erro ao resetar serenaEngine.mjs:', e.message);
+    result = { success: false, error: e.message };
+  }
+
+  // Zera histórico no SQLite
+  try {
+    if (db && typeof db.resetSerenaConversations === 'function') {
+      db.resetSerenaConversations();
+    }
+  } catch (_) {}
+
+  // Zera métricas em disco do dashboard
+  try {
+    if (global.serenaDashboardEngine && typeof global.serenaDashboardEngine.resetMetrics === 'function') {
+      global.serenaDashboardEngine.resetMetrics();
+    }
+    const cfgCandidates = [
+      path.join(__dirname, '..', 'configuracoes'),
+      path.join(process.cwd(), 'configuracoes'),
+      process.resourcesPath ? path.join(process.resourcesPath, 'app', 'configuracoes') : '',
+      process.resourcesPath ? path.join(process.resourcesPath, 'configuracoes') : '',
+    ].filter(Boolean);
+
+    for (const dir of cfgCandidates) {
+      for (const mf of ['serena-dashboard-metrics.json', 'serena-leads-tracker.json']) {
+        const fullMf = path.join(dir, mf);
+        if (fs.existsSync(fullMf)) fs.unlinkSync(fullMf);
+      }
+    }
+  } catch (_) {}
+
+  console.log('⚠️ [SERENA] Banco de dados, conversas e estatísticas zerados com sucesso.');
+  return result && typeof result === 'object' ? { success: true, ...result } : { success: true };
+}
+
+function register(mainWindow) {
+  wa.setWindow(mainWindow);
+  scheduler.setWindow(mainWindow);
+
+  // ── WhatsApp ──────────────────────────────────────────────────────────────
+  ipcMain.handle('wa:init',              () => { wa.init(); return true; });
+  ipcMain.handle('wa:status',            () => wa.getStatus());
+  ipcMain.handle('wa:info',              () => wa.getInfo());
+  ipcMain.handle('wa:disconnect',        async () => { await wa.disconnect(); return true; });
+  ipcMain.handle('wa:clear-session',     async () => { await wa.clearSessionAndReconnect(); return true; });
+
+  // ── Contatos ──────────────────────────────────────────────────────────────
+  ipcMain.handle('contacts:list',        () => db.getContacts());
+  ipcMain.handle('contacts:add',         (_, name, phone) => { db.insertContact(name, phone); return db.getContacts(); });
+  ipcMain.handle('contacts:delete',      (_, id) => { db.deleteContact(Number(id)); return db.getContacts(); });
+  ipcMain.handle('contacts:delete-many', (_, idsJson) => {
+    let ids = [];
+    try { ids = JSON.parse(idsJson); } catch (_) { ids = []; }
+    if (!Array.isArray(ids)) ids = Object.values(ids);
+    db.deleteContacts(ids.map(Number).filter(n => !isNaN(n) && n > 0));
+    return db.getContacts();
+  });
+  ipcMain.handle('contacts:delete-all', () => {
+    db.deleteAllContacts();
+    return db.getContacts();
+  });
+
+  ipcMain.handle('contacts:import-csv', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Importar contatos CSV',
+      filters: [{ name: 'CSV', extensions: ['csv'] }],
+      properties: ['openFile']
+    });
+    if (result.canceled || !result.filePaths.length) return { ok: false };
+
+    let content = fs.readFileSync(result.filePaths[0]);
+    if (content[0] === 0xEF && content[1] === 0xBB && content[2] === 0xBF) {
+      content = content.slice(3);
+    }
+    content = content.toString('utf-8');
+
+    const firstLine = content.split(/\r?\n/)[0] || '';
+    let delimiter = ',';
+    if (firstLine.includes('\t'))  delimiter = '\t';
+    else if (firstLine.includes(';')) delimiter = ';';
+
+    const rows = parse(content, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      delimiter,
+      relax_column_count: true
+    });
+
+    const mapped = rows.map(r => {
+      const norm = {};
+      for (const [k, v] of Object.entries(r)) {
+        norm[k.toLowerCase().trim()] = (v || '').trim();
+      }
+      const name  = norm['nome devedor'] || norm['nome'] || norm['name'] || norm['contato'] || '';
+      const rawPhone = norm['telefone'] || norm['phone'] || norm['número'] || norm['numero'] || norm['fone'] || norm['celular'] || '';
+      const phone = rawPhone.replace(/\D/g, '');
+      return { name, phone };
+    }).filter(r => r.name && r.phone.length >= 10);
+
+    db.bulkInsertContacts(mapped);
+    return { ok: true, count: mapped.length, contacts: db.getContacts() };
+  });
+
+  // ── Mensagens ─────────────────────────────────────────────────────────────
+  ipcMain.handle('messages:list',   () => db.getMessages());
+  ipcMain.handle('messages:add',    (_, title, body) => { db.insertMessage(title, body); return db.getMessages(); });
+  ipcMain.handle('messages:update', (_, id, title, body) => { db.updateMessage(id, title, body); return db.getMessages(); });
+  ipcMain.handle('messages:delete', (_, id) => { db.deleteMessage(id); return db.getMessages(); });
+
+  // ── Associações ───────────────────────────────────────────────────────────
+  ipcMain.handle('assignments:list',   () => db.getAssignments());
+  ipcMain.handle('assignments:set',    (_, contactId, messageId) => { db.setAssignment(contactId, messageId); return db.getAssignments(); });
+  ipcMain.handle('assignments:delete', (_, id) => { db.deleteAssignment(id); return db.getAssignments(); });
+
+  // ── Send Log ──────────────────────────────────────────────────────────────
+  ipcMain.handle('log:list',  () => db.getSendLog());
+  ipcMain.handle('log:clear', () => {
+    const p = path.join(require('electron').app.getPath('userData'), 'whatsapp-sender.db');
+    const Database = require('better-sqlite3');
+    const raw = new Database(p);
+    raw.prepare(`DELETE FROM send_log WHERE status IN ('sent','delivered','read','replied','error')`).run();
+    raw.close();
+    return db.getSendLog();
+  });
+
+  // ── Scheduler ─────────────────────────────────────────────────────────────
+  ipcMain.handle('scheduler:run', async (_, jobs, blockSize, delaySec) => {
+    await scheduler.run(jobs, Number(blockSize), Number(delaySec));
+    return true;
+  });
+  ipcMain.handle('scheduler:cancel',     () => { scheduler.cancel(); return true; });
+  ipcMain.handle('scheduler:is-running', () => scheduler.isRunning());
+
+  // ── Serena Bot Handlers ───────────────────────────────────────────────────
+  ipcMain.handle('serena:dashboard', (_, dateFilter) => db.getDashboardMetrics(dateFilter));
+  ipcMain.handle('serena:recent-activity', (_, limit) => db.getSerenaRecentActivity(limit || 100));
+  ipcMain.handle('serena:appointments', () => db.getAllAppointments());
+  ipcMain.handle('serena:messages', (_, phone) => db.getSerenaMessages(phone));
+  ipcMain.handle('serena:reset-all', async () => executeFullSerenaReset());
+  ipcMain.handle('serena:resetDatabase', async () => executeFullSerenaReset());
+  ipcMain.handle('serena:reset-lead', (_, phone) => { db.resetLeadByPhone(phone); return true; });
+
+  // ── Feriados ──────────────────────────────────────────────────────────────
+  ipcMain.handle('holidays:list-national', (_, year) => {
+    const yr = year || new Date().getFullYear();
+    return holidays.getNationalHolidays(Number(yr));
+  });
+  ipcMain.handle('holidays:list-custom', () => db.getCustomHolidays());
+  ipcMain.handle('holidays:add-custom', (_, date, desc) => {
+    db.addCustomHoliday(date, desc);
+    return db.getCustomHolidays();
+  });
+  ipcMain.handle('holidays:delete-custom', (_, id) => {
+    db.deleteCustomHoliday(id);
+    return db.getCustomHolidays();
+  });
+
+  // ── Config ────────────────────────────────────────────────────────────────
+  ipcMain.handle('config:get', () => db.getConfig());
+  ipcMain.handle('config:set', (_, key, val) => { db.setConfig(key, val); return db.getConfig(); });
+
+  // ── Zelda Bot Handlers ────────────────────────────────────────────────────
+  ipcMain.handle('zelda:list-active',    () => {
+    const list = db.zeldaListActive();
+    return list.map(ini => ({
+      ...ini,
+      quotes:   db.zeldaGetQuotes(ini.id),
+      votes:    db.zeldaGetVotes(ini.id),
+      comments: db.zeldaGetComments(ini.id)
+    }));
+  });
+  ipcMain.handle('zelda:list-archived',  () => db.zeldaListArchived());
+  ipcMain.handle('zelda:messages',       (_, limit) => db.zeldaGetMessages(limit || 200));
+  ipcMain.handle('zelda:detail',         (_, seq) => {
+    const ini = db.zeldaGetBySeq(seq);
+    if (!ini) return null;
+    return {
+      ...ini,
+      quotes:   db.zeldaGetQuotes(ini.id),
+      votes:    db.zeldaGetVotes(ini.id),
+      comments: db.zeldaGetComments(ini.id)
+    };
+  });
+  ipcMain.handle('zelda:create-initiative', (_, { title, responsible, dueDate, createdBy, status, supplier, approvedValue }) => {
+    return db.zeldaCreateInitiative(title, responsible, dueDate, createdBy || 'Painel Desktop', status, supplier, approvedValue);
+  });
+  ipcMain.handle('zelda:update-status', (_, { id, status, extra }) => {
+    db.zeldaUpdateStatus(id, status, extra || {});
+    return db.zeldaGetById(id);
+  });
+  ipcMain.handle('zelda:archive-all', () => {
+    db.zeldaArchiveAll();
+    return { success: true };
+  });
+}
+
+module.exports = { register };
+
+// === SERENA_CLINIC_CONFIG_BACKEND_START ===
+try {
+  const __bReq = require; const __bDir = __dirname;
+  const __pathMod = __bReq("path");
+  const __fsMod = __bReq("fs");
+  const __cfgCandidates = [__pathMod.join(__bDir, "configuracoes"), __pathMod.join(__bDir, "..", "configuracoes"), __pathMod.join(__bDir, "..", "..", "configuracoes"), __pathMod.join(process.cwd(), "configuracoes")];
+  if (process.resourcesPath) { __cfgCandidates.push(__pathMod.join(process.resourcesPath, "app", "configuracoes"), __pathMod.join(process.resourcesPath, "configuracoes")); }
+  const __cfgDir = __cfgCandidates.find((d) => __fsMod.existsSync(__pathMod.join(d, "configManager.cjs"))) || __pathMod.join(process.cwd(), "configuracoes");
+  const __serenaConfigMgr = __bReq(__pathMod.join(__cfgDir, "configManager.cjs"));
+  const __serenaAntiBan = __bReq(__pathMod.join(__cfgDir, "antiBanEngine.cjs"));
+  const __serenaZeldaCond = __bReq(__pathMod.join(__cfgDir, "zeldaCondominioEngine.cjs"));
+  const __serenaZeldaGuard = __bReq(__pathMod.join(__cfgDir, "zeldaGroupGuard.cjs"));
+  const __serenaDashEng = __bReq(__pathMod.join(__cfgDir, "serenaDashboardEngine.cjs"));
+  global.getSerenaClinicSettings = __serenaConfigMgr.getClinicSettings;
+  global.saveSerenaClinicSettings = __serenaConfigMgr.saveClinicSettings;
+  global.serenaAntiBan = __serenaAntiBan;
+  global.serenaZeldaCondominio = __serenaZeldaCond;
+  global.serenaZeldaGuard = __serenaZeldaGuard;
+  global.serenaDashboardEngine = __serenaDashEng;
+  try {
+    const __wwebLib = __bReq("whatsapp-web.js");
+    if (__wwebLib && __wwebLib.Client && __wwebLib.Client.prototype && !__wwebLib.Client.prototype.__serenaProtoHooked) {
+      __wwebLib.Client.prototype.__serenaProtoHooked = true;
+      const __origWwebInit = __wwebLib.Client.prototype.initialize;
+      __wwebLib.Client.prototype.initialize = function (...__iArgs) {
+        try {
+          __serenaAntiBan.installBulkAntiBanHook(this);
+          __serenaZeldaCond.attachConnectionMonitor(this);
+          __serenaZeldaGuard.attachZeldaGroupListener(this);
+          if (typeof __serenaDashEng.attachLeadTracker === "function") __serenaDashEng.attachLeadTracker(this);
+        } catch (_eInit) {}
+        return __origWwebInit.apply(this, __iArgs);
+      };
+    }
+  } catch (_noWwebLib) {}
+  if (typeof client !== "undefined" && client) {
+    __serenaAntiBan.installBulkAntiBanHook(client);
+    __serenaZeldaCond.attachConnectionMonitor(client);
+    __serenaZeldaGuard.attachZeldaGroupListener(client);
+    if (typeof __serenaDashEng.attachLeadTracker === "function") __serenaDashEng.attachLeadTracker(client);
+  }
+  if (typeof sock !== "undefined" && sock) {
+    __serenaAntiBan.installBulkAntiBanHook(sock);
+    __serenaZeldaCond.attachConnectionMonitor(sock);
+    __serenaZeldaGuard.attachZeldaGroupListener(sock);
+    if (typeof __serenaDashEng.attachLeadTracker === "function") __serenaDashEng.attachLeadTracker(sock);
+  }
+  if (typeof ipcMain !== "undefined" && ipcMain && typeof ipcMain.handle === "function") {
+    try { ipcMain.removeHandler("serena:get-clinic-settings"); } catch (_e) {}
+    try { ipcMain.removeHandler("serena:save-clinic-settings"); } catch (_e) {}
+    try { ipcMain.removeHandler("zelda:get-condominio-state"); } catch (_e) {}
+    try { ipcMain.removeHandler("zelda:get-group-diagnostics"); } catch (_e) {}
+    try { ipcMain.removeHandler("zelda:save-activities"); } catch (_e) {}
+    try { ipcMain.removeHandler("zelda:add-activity"); } catch (_e) {}
+    try { ipcMain.removeHandler("zelda:update-activity"); } catch (_e) {}
+    try { ipcMain.removeHandler("zelda:delete-activity"); } catch (_e) {}
+    try { ipcMain.removeHandler("serena:get-dashboard-metrics"); } catch (_e) {}
+    ipcMain.handle("serena:get-clinic-settings", () => __serenaConfigMgr.getClinicSettings());
+    ipcMain.handle("serena:save-clinic-settings", (_evt, payload) => __serenaConfigMgr.saveClinicSettings(payload || {}));
+    ipcMain.handle("zelda:get-condominio-state", () => ({ connection: __serenaZeldaCond.getWhatsAppConnectionStatus(), activities: __serenaZeldaCond.loadActivities(), settings: __serenaConfigMgr.getClinicSettings(), discoveredGroups: __serenaZeldaCond.getDiscoveredGroups(), debugEvents: __serenaZeldaCond.getZeldaGroupDebugLog() }));
+    ipcMain.handle("zelda:get-group-diagnostics", () => ({ discoveredGroups: __serenaZeldaCond.getDiscoveredGroups(), debugEvents: __serenaZeldaCond.getZeldaGroupDebugLog(), settings: __serenaConfigMgr.getClinicSettings() }));
+    ipcMain.handle("zelda:save-activities", (_evt, payload) => { const saved = __serenaZeldaCond.saveActivities((payload && payload.activities) || []); if (payload && payload.outboxText) { __serenaZeldaCond.enqueueGroupMessage(payload.outboxText, (__serenaConfigMgr.getClinicSettings().zeldaGroupTarget || "")); } return saved; });
+    ipcMain.handle("zelda:add-activity", (_evt, payload) => __serenaZeldaCond.addActivity(payload || {}, (payload && payload.updatedBy) || "Painel mm-sender"));
+    ipcMain.handle("zelda:update-activity", (_evt, payload) => __serenaZeldaCond.updateActivity(payload && (payload.id || payload.code), payload || {}, (payload && payload.updatedBy) || "Painel mm-sender"));
+    ipcMain.handle("zelda:delete-activity", (_evt, idOrCode) => __serenaZeldaCond.deleteActivity(typeof idOrCode === "object" && idOrCode ? (idOrCode.id || idOrCode.code) : idOrCode));
+    ipcMain.handle("serena:get-dashboard-metrics", (_evt, dateStr) => __serenaDashEng.computeDashboardMetrics(dateStr || "all"));
+  }
+  if (typeof app !== "undefined" && app && typeof app.get === "function" && typeof app.post === "function" && typeof app.use === "function") {
+    app.get("/api/clinic-settings", (_req, res) => res.json(__serenaConfigMgr.getClinicSettings()));
+    app.post("/api/clinic-settings", (req, res) => res.json(__serenaConfigMgr.saveClinicSettings(req.body || {})));
+    app.get("/api/zelda-condominio/state", (_req, res) => res.json({ connection: __serenaZeldaCond.getWhatsAppConnectionStatus(), activities: __serenaZeldaCond.loadActivities(), settings: __serenaConfigMgr.getClinicSettings(), discoveredGroups: __serenaZeldaCond.getDiscoveredGroups(), debugEvents: __serenaZeldaCond.getZeldaGroupDebugLog() }));
+    app.get("/api/zelda-condominio/diagnostics", (_req, res) => res.json({ ok: true, discoveredGroups: __serenaZeldaCond.getDiscoveredGroups(), debugEvents: __serenaZeldaCond.getZeldaGroupDebugLog(), settings: __serenaConfigMgr.getClinicSettings() }));
+    app.post("/api/zelda-condominio/activities", (req, res) => { if (Array.isArray(req.body && req.body.activities)) { const saved = __serenaZeldaCond.saveActivities(req.body.activities); if (req.body.outboxText) { __serenaZeldaCond.enqueueGroupMessage(req.body.outboxText, (__serenaConfigMgr.getClinicSettings().zeldaGroupTarget || "")); } return res.json({ ok: true, activities: saved }); } const r = __serenaZeldaCond.addActivity(req.body || {}, (req.body && req.body.updatedBy) || "Painel mm-sender"); return res.json({ ok: true, activity: r.created, activities: r.list }); });
+    if (typeof app.put === "function") { app.put("/api/zelda-condominio/activities/:id", (req, res) => { const r = __serenaZeldaCond.updateActivity(req.params.id, req.body || {}, (req.body && req.body.updatedBy) || "Painel mm-sender"); if (!r.updated) return res.status(404).json({ ok: false, error: "Iniciativa nao encontrada." }); return res.json({ ok: true, activity: r.updated, activities: r.list }); }); }
+    if (typeof app.delete === "function") { app.delete("/api/zelda-condominio/activities/:id", (req, res) => { const r = __serenaZeldaCond.deleteActivity(req.params.id); return res.json({ ok: true, activities: r.list }); }); }
+    app.get("/api/serena-dashboard/metrics", (req, res) => res.json(__serenaDashEng.computeDashboardMetrics((req.query && req.query.date) || "all")));
+  }
+} catch (_serenaHookErr) {}
+// === SERENA_CLINIC_CONFIG_BACKEND_END ===

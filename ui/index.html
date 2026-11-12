@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Painel Integrado - Serena & Zelda (mm-sender)</title>
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { margin: 0; padding: 0; background: #f8fafc; color: #0f172a; display: flex; min-height: 100vh; }
+    
+    /* Layout Lateral e Navegação */
+    #sidebar { width: 240px; background: #0f172a; color: #fff; padding: 20px; flex-shrink: 0; }
+    #sidebar h2 { font-size: 16px; margin: 0 0 20px; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.5px; }
+    #sidebar nav a { display: block; color: #94a3b8; text-decoration: none; padding: 10px 12px; border-radius: 6px; margin-bottom: 4px; font-size: 14px; }
+    #sidebar nav a:hover, #sidebar nav a.active { background: #1e293b; color: #fff; }
+    
+    /* Área Principal */
+    main { flex: 1; padding: 24px; overflow-y: auto; }
+    .page-content { display: none; }
+    .page-content.active { display: block; }
+
+    /* Componentes Gerais */
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+    .card-title { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
+    p.sub { margin: 0 0 16px; font-size: 13px; color: #64748b; }
+    
+    /* Status do WhatsApp */
+    .wa-card { background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+    .wa-info { display: flex; align-items: center; gap: 12px; }
+    .status-dot { width: 12px; height: 12px; border-radius: 50%; background: #94a3b8; display: inline-block; }
+    .status-dot.connected { background: #10b981; box-shadow: 0 0 8px #10b98188; }
+    .status-dot.disconnected { background: #ef4444; }
+    .status-dot.connecting { background: #f59e0b; }
+    #qr-container { text-align: center; margin-top: 12px; padding: 16px; background: #f8fafc; border-radius: 8px; display: none; }
+    #qr-image { max-width: 240px; border-radius: 8px; border: 1px solid #cbd5e1; margin-top: 8px; }
+
+    /* Grid de Métricas */
+    .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 20px; }
+    .metric-card { background: #f1f5f9; padding: 16px; border-radius: 8px; text-align: center; }
+    .metric-card .val { font-size: 24px; font-weight: bold; color: #0f172a; }
+    .metric-card .lbl { font-size: 12px; color: #64748b; margin-top: 4px; }
+    
+    /* Log de Eventos e Lista */
+    .events-container { max-height: 320px; overflow-y: auto; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; background: #fafafa; }
+    .alert-item { padding: 10px; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; }
+    .alert-item:last-child { border-bottom: none; }
+    .badge { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; }
+    .badge-danger { background: #fee2e2; color: #991b1b; }
+    .badge-warning { background: #fef3c7; color: #92400e; }
+    .badge-info { background: #e0f2fe; color: #075985; }
+
+    /* Formulários e Modal */
+    label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; color: #1e293b; }
+    input, select, textarea { width: 100%; height: 38px; padding: 0 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px; }
+    textarea { height: 80px; padding: 8px 12px; }
+    button { margin-top: 0; height: 38px; padding: 0 16px; border: 0; border-radius: 6px; background: #0f172a; color: #fff; font-weight: 600; cursor: pointer; }
+    button:hover { background: #1e293b; }
+    .btn-secondary { background: #e2e8f0; color: #0f172a; }
+    .btn-secondary:hover { background: #cbd5e1; }
+    .btn-danger { background: #dc2626; color: #fff; }
+    .btn-danger:hover { background: #b91c1c; }
+    .status { margin-top: 8px; font-size: 13px; color: #047857; display: none; }
+
+    /* Modal Flutuante da Zelda */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(2px);
+      z-index: 9999; justify-content: center; align-items: center;
+    }
+    .modal-overlay.open { display: flex !important; }
+    .modal-card { background: #fff; border-radius: 12px; padding: 24px; width: 90%; max-width: 540px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+  </style>
+</head>
+<body>
+
+  <!-- Menu Lateral de Navegação -->
+  <aside id="sidebar">
+    <h2>MM-Sender</h2>
+    <nav>
+      <a href="#" class="nav-btn active" data-target="page-serena">Serena (Captação)</a>
+      <a href="#" class="nav-btn" data-target="page-zelda">Zelda (Condomínio)</a>
+      <a href="#" class="nav-btn" data-target="page-settings">Configurações</a>
+    </nav>
+  </aside>
+
+  <main>
+    <!-- BARRA FIXA DE CONEXÃO E LIMPEZA DE SESSÃO DO WHATSAPP -->
+    <div class="wa-card">
+      <div class="wa-info">
+        <span id="wa-status-dot" class="status-dot disconnected"></span>
+        <div>
+          <strong id="wa-status-text" style="font-size: 14px; display: block;">WhatsApp Desconectado</strong>
+          <span id="wa-info-detail" style="font-size: 12px; color: #64748b;">Aguardando inicialização da sessão...</span>
+        </div>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button id="btn-wa-connect">📱 Conectar WhatsApp</button>
+        <button id="btn-wa-clear-session" class="btn-danger">🔄 Encerrar Sessão e Conectar</button>
+        <button id="btn-wa-disconnect" class="btn-secondary" style="display:none;">Desconectar</button>
+      </div>
+    </div>
+
+    <!-- CONTAINER DO QR CODE -->
+    <div id="qr-container" class="card">
+      <h4 style="margin: 0 0 6px; color: #0f172a;">Escaneie o QR Code no seu celular</h4>
+      <p style="font-size: 12px; color: #64748b; margin: 0 0 10px;">Abra o WhatsApp > Aparelhos conectados > Conectar um aparelho.</p>
+      <img id="qr-image" src="" alt="QR Code WhatsApp" />
+    </div>
+
+    <!-- ABA 1: SERENA (CAPTAÇÃO DE LEADS) -->
+    <section id="page-serena" class="page-content active">
+      <div class="card">
+        <h1 style="font-size: 20px; margin: 0 0 6px;">Dashboard Serena — OdontoCompany</h1>
+        <p class="sub">Métricas de atração, qualificação e agendamento de pacientes em tempo real.</p>
+
+        <div class="metrics-grid">
+          <div class="metric-card"><div class="val" id="metric-total-leads">0</div><div class="lbl">Total de Leads</div></div>
+          <div class="metric-card"><div class="val" id="metric-replied-leads">0</div><div class="lbl">Respondidos</div></div>
+          <div class="metric-card"><div class="val" id="metric-booked-leads">0</div><div class="lbl">Agendados</div></div>
+          <div class="metric-card"><div class="val" id="metric-handoff-leads">0</div><div class="lbl">Transbordo Humano</div></div>
+        </div>
+      </div>
+
+      <!-- PAINEL: LOG DE EVENTOS & ALERTAS DA RECEPÇÃO -->
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 class="card-title" style="margin:0;">🚨 Log de Eventos & Alertas da Recepção</h3>
+          <span class="badge badge-info" id="serena-alerts-count">0 alertas</span>
+        </div>
+        <div class="events-container" id="serena-events-log-list">
+          <p style="text-align: center; color: #64748b; font-size: 13px;">Nenhum alerta recente registrado.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ABA 2: ZELDA (CONDOMÍNIO) -->
+    <section id="page-zelda" class="page-content">
+      <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <h3 class="card-title" style="margin:0;">Zelda Condomínio — Gestão de Atividades</h3>
+            <p class="sub" style="margin:4px 0 0;">Acompanhamento de cotações, manutenções e orçamentos do conselho.</p>
+          </div>
+          <button style="margin-top:0;" onclick="zeldaOpenNewInitiativeModal()">+ Nova Atividade</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Histórico de Atividades do Condomínio</h3>
+        <div id="zelda-activities-list">
+          <p style="color: #64748b; font-size: 13px;">Nenhuma atividade cadastrada até o momento.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ABA 3: CONFIGURAÇÕES -->
+    <section id="page-settings" class="page-content">
+      <div class="card">
+        <h1 style="font-size: 20px; margin: 0 0 6px;">Configurações da Clínica (Serena v2)</h1>
+        <p class="sub">Altere o Nome, Endereço e WhatsApp da Recepção. Todas as mensagens e alertas da Serena usam estes dados dinamicamente.</p>
+        <form id="cfgForm">
+          <label for="clinicName">Nome da Clínica</label>
+          <input id="clinicName" name="clinicName" required placeholder="Ex: OdontoCompany Osasco" />
+
+          <label for="clinicAddress">Endereço Completo da Clínica</label>
+          <input id="clinicAddress" name="clinicAddress" required placeholder="Ex: Av. Brasil, 1200 - Sala 304, Centro" />
+
+          <label for="parkingInfo">Estacionamento / Referência (Opcional)</label>
+          <input id="parkingInfo" name="parkingInfo" placeholder="Ex: Estacionamento conveniado no local" />
+
+          <label for="receptionPhone">WhatsApp da Recepção / Secretária (para Alertas de Agendamento)</label>
+          <input id="receptionPhone" name="receptionPhone" placeholder="Ex: 5511999998888 (DDI + DDD + Número)" />
+
+          <button type="submit" style="margin-top:16px;">Salvar Configurações</button>
+          <div id="statusMsg" class="status">Configurações salvas e aplicadas em toda a aplicação!</div>
+        </form>
+      </div>
+
+      <!-- SEÇÃO: ZERAR BANCO DE DADOS DA SERENA (LEADS E HISTÓRICO) -->
+      <div class="card" style="border: 1px solid #fee2e2; background: #fff5f5;">
+        <h3 class="card-title" style="color: #dc2626;">⚠️ Manutenção & Reset da Base de Dados</h3>
+        <p class="sub" style="color: #7f1d1d; margin-bottom: 12px;">
+          Esta ação limpa todos os leads registrados, métricas e horários ocupados no arquivo <code>serena-db.json</code>.<br>
+          <strong>Nota:</strong> As configurações da clínica (nome, endereço e horários) <u>serão mantidas 100% intactas</u>.
+        </p>
+        <button id="btn-reset-db" type="button" class="btn-danger" style="margin-top:0;">
+          🗑️ Zerar Banco de Dados e Estatísticas
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <!-- MODAL FLUTUANTE DE NOVA ATIVIDADE -->
+  <div id="zelda-new-initiative-modal" class="modal-overlay">
+    <div class="modal-card">
+      <h3 style="margin: 0 0 4px; font-size: 18px;">Nova Atividade — Zelda Condomínio</h3>
+      <p class="sub" style="margin-bottom: 12px;">Cadastre uma nova solicitação ou cotação para o grupo.</p>
+
+      <form onsubmit="event.preventDefault(); zeldaSubmitNewInitiative();">
+        <label for="zelda-input-title">Iniciativa / Atividade *</label>
+        <input id="zelda-input-title" required placeholder="Ex: Manutenção do portão da garagem" />
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div>
+            <label for="zelda-input-resp">Responsável *</label>
+            <input id="zelda-input-resp" required placeholder="Ex: Síndico / João / Marcelo" />
+          </div>
+          <div>
+            <label for="zelda-input-status">Status da Atividade</label>
+            <select id="zelda-input-status">
+              <option value="aprovado">✅ Aprovado (Pré-aprovado)</option>
+              <option value="em_cotacao">🔵 Em Cotação</option>
+              <option value="em_aprovacao">🟠 Em Aprovação</option>
+              <option value="em_execucao">🔨 Em Execução</option>
+            </select>
+          </div>
+        </div>
+
+        <label for="zelda-input-due">Prazo / Data Prevista (Opcional)</label>
+        <input id="zelda-input-due" placeholder="Ex: 20/04/2026 ou 15 dias" />
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div>
+            <label for="zelda-input-supplier">Fornecedor (Opcional)</label>
+            <input id="zelda-input-supplier" placeholder="Ex: Alfa Soluções" />
+          </div>
+          <div>
+            <label for="zelda-input-value">Valor Aprovado / Estimado (R$)</label>
+            <input id="zelda-input-value" placeholder="Ex: 1500,00" />
+          </div>
+        </div>
+
+        <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
+          <button type="button" class="btn-secondary" onclick="zeldaCloseNewInitiativeModal()">Cancelar</button>
+          <button type="submit" id="btn-zelda-save-initiative">Salvar Atividade</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const apiObj = window.api || window.electronAPI;
+
+    // Elementos da Interface do WhatsApp
+    const dot = document.getElementById('wa-status-dot');
+    const statusText = document.getElementById('wa-status-text');
+    const infoDetail = document.getElementById('wa-info-detail');
+    const qrContainer = document.getElementById('qr-container');
+    const qrImage = document.getElementById('qr-image');
+    const btnConnect = document.getElementById('btn-wa-connect');
+    const btnClearSession = document.getElementById('btn-wa-clear-session');
+    const btnDisconnect = document.getElementById('btn-wa-disconnect');
+
+    function updateWaUI(status, info = '') {
+      if (status === 'connected' || status === 'ready') {
+        dot.className = 'status-dot connected';
+        statusText.textContent = 'WhatsApp Conectado (Online)';
+        infoDetail.textContent = info || 'Pronto para enviar e receber mensagens 24/7.';
+        qrContainer.style.display = 'none';
+        btnConnect.style.display = 'none';
+        btnClearSession.style.display = 'inline-block';
+        btnDisconnect.style.display = 'inline-block';
+      } else if (status === 'connecting' || status === 'qr' || status === 'authenticated') {
+        dot.className = 'status-dot connecting';
+        statusText.textContent = status === 'authenticated' ? 'Autenticado! Carregando...' : 'Gerando QR Code / Conectando...';
+        infoDetail.textContent = info || 'Escaneie o código abaixo com o WhatsApp.';
+        btnConnect.style.display = 'none';
+        btnDisconnect.style.display = 'none';
+        btnClearSession.style.display = 'inline-block';
+      } else {
+        dot.className = 'status-dot disconnected';
+        statusText.textContent = 'WhatsApp Desconectado';
+        infoDetail.textContent = info || 'Clique para iniciar a conexão ou encerrar sessão.';
+        btnConnect.style.display = 'inline-block';
+        btnClearSession.style.display = 'inline-block';
+        btnDisconnect.style.display = 'none';
+      }
+    }
+
+    if (apiObj) {
+      if (typeof apiObj.onWaQr === 'function') {
+        apiObj.onWaQr((qrData) => {
+          if (qrData) {
+            qrImage.src = qrData;
+            qrContainer.style.display = 'block';
+            updateWaUI('qr', 'QR Code gerado! Escaneie com o WhatsApp do celular.');
+          }
+        });
+      }
+
+      if (typeof apiObj.onWaStatus === 'function') {
+        apiObj.onWaStatus((st) => {
+          const code = (st && st.status) ? st.status : st;
+          updateWaUI(code, (st && st.info) || '');
+        });
+      }
+
+      if (typeof apiObj.onWaReady === 'function') {
+        apiObj.onWaReady((info) => {
+          updateWaUI('connected', (info && (info.name || info.phone)) ? `Conectado: ${info.name || ''} (${info.phone || ''})` : 'Conectado!');
+        });
+      }
+
+      if (typeof apiObj.onWaError === 'function') {
+        apiObj.onWaError((err) => {
+          qrContainer.style.display = 'none';
+          updateWaUI('disconnected', '❌ Erro WhatsApp: ' + String(err));
+        });
+      }
+
+      if (typeof apiObj.waInfo === 'function') {
+        apiObj.waInfo().then(info => {
+          if (info && info.status) {
+            updateWaUI(info.status, info.phone ? `Conectado: ${info.name || ''} (${info.phone})` : '');
+          }
+        }).catch(() => {});
+      }
+    }
+
+    btnConnect.addEventListener('click', async () => {
+      updateWaUI('connecting', 'Iniciando WhatsApp Web (aguarde ~10s)...');
+      try {
+        if (apiObj && typeof apiObj.waInit === 'function') {
+          await apiObj.waInit();
+        }
+      } catch (e) {
+        updateWaUI('disconnected', 'Erro ao iniciar: ' + e.message);
+      }
+    });
+
+    btnClearSession.addEventListener('click', async () => {
+      if (confirm("Deseja encerrar a sessão atual do WhatsApp e gerar um novo QR Code?")) {
+        updateWaUI('connecting', 'Encerrando sessão antiga e gerando novo QR Code (aguarde ~15s)...');
+        qrContainer.style.display = 'none';
+        try {
+          if (apiObj && typeof apiObj.waClearSession === 'function') {
+            await apiObj.waClearSession();
+          } else {
+            updateWaUI('disconnected', 'Erro: waClearSession não encontrado no preload.js');
+          }
+        } catch (e) {
+          updateWaUI('disconnected', 'Erro ao limpar sessão: ' + e.message);
+        }
+      }
+    });
+
+    btnDisconnect.addEventListener('click', async () => {
+      if (apiObj && typeof apiObj.waDisconnect === 'function') {
+        await apiObj.waDisconnect();
+        qrContainer.style.display = 'none';
+        updateWaUI('disconnected');
+      }
+    });
+
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.page-content').forEach(p => p.classList.remove('active'));
+        
+        btn.classList.add('active');
+        const targetId = btn.getAttribute('data-target');
+        document.getElementById(targetId).classList.add('active');
+      });
+    });
+
+    function renderSerenaEventsLog(alerts = []) {
+      const container = document.getElementById('serena-events-log-list');
+      const countBadge = document.getElementById('serena-alerts-count');
+      if (!container) return;
+
+      if (countBadge) countBadge.textContent = `${alerts.length} alerta(s)`;
+
+      if (!alerts || alerts.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: #64748b; font-size: 13px;">Nenhum alerta recente registrado.</p>';
+        return;
+      }
+
+      container.innerHTML = alerts.map(alert => `
+        <div class="alert-item">
+          <div>
+            <strong style="color: #0f172a; font-size: 13px;">[${alert.createdAt || ''}] ${alert.type === 'atendimento_humano' ? 'Transbordo Humano' : alert.type}</strong>
+            <div style="font-size: 13px; color: #334155;"><strong>Lead:</strong> ${alert.leadName || 'Não identificado'} (${alert.leadPhone || ''})</div>
+            <div style="font-size: 12px; color: #64748b;">${alert.formattedMessage || ''}</div>
+          </div>
+          <span class="badge ${alert.priority === 'high' ? 'badge-danger' : 'badge-warning'}">${alert.priority || 'normal'}</span>
+        </div>
+      `).join('');
+    }
+
+    async function fetchSerenaMetrics() {
+      try {
+        const res = await fetch('/api/serena/metrics');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.totais) {
+            document.getElementById('metric-total-leads').textContent = data.totais.leadsEntrada || 0;
+            document.getElementById('metric-replied-leads').textContent = data.totais.mensagensRespondidas || 0;
+            document.getElementById('metric-booked-leads').textContent = data.totais.agendados || 0;
+            document.getElementById('metric-handoff-leads').textContent = data.totais.transbordoHumano || 0;
+          }
+          if (data.receptionAlerts) {
+            renderSerenaEventsLog(data.receptionAlerts);
+          }
+        }
+      } catch (_e) {}
+    }
+
+    async function initSettings() {
+      try {
+        if (apiObj && apiObj.getClinicSettings) {
+          const cfg = await apiObj.getClinicSettings();
+          fillForm(cfg);
+          return;
+        }
+        const res = await fetch("/api/configuracoes");
+        if (res.ok) fillForm(await res.json());
+      } catch {}
+    }
+
+    function fillForm(cfg) {
+      if (!cfg) return;
+      document.getElementById("clinicName").value = cfg.clinicName || "";
+      document.getElementById("clinicAddress").value = cfg.clinicAddress || cfg.address || "";
+      document.getElementById("parkingInfo").value = cfg.parkingInfo || "";
+      document.getElementById("receptionPhone").value = cfg.receptionPhone || cfg.reception_phone || "";
+    }
+
+    document.getElementById("cfgForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const recPhone = document.getElementById("receptionPhone").value.trim();
+      const payload = {
+        clinicName: document.getElementById("clinicName").value.trim(),
+        clinicAddress: document.getElementById("clinicAddress").value.trim(),
+        parkingInfo: document.getElementById("parkingInfo").value.trim(),
+        receptionPhone: recPhone,
+        reception_phone: recPhone,
+      };
+      if (apiObj && apiObj.saveClinicSettings) {
+        await apiObj.saveClinicSettings(payload);
+      } else {
+        await fetch("/api/configuracoes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+      if (apiObj && apiObj.configSet && recPhone) {
+        await apiObj.configSet('reception_phone', recPhone);
+      }
+      const st = document.getElementById("statusMsg");
+      st.style.display = "block";
+      setTimeout(() => { st.style.display = "none"; }, 2500);
+    });
+
+    const btnResetDb = document.getElementById("btn-reset-db");
+    if (btnResetDb) {
+      btnResetDb.addEventListener("click", async () => {
+        const confirm1 = confirm(
+          "⚠️ ATENÇÃO!\n\nEsta ação apaga todos os leads cadastrados, históricos de conversas e agendamentos ocupados no serena-db.json.\n\nAs configurações da clínica (nome, endereço e horários) SERÃO PRESERVADAS.\n\nDeseja continuar?"
+        );
+        if (!confirm1) return;
+
+        const inputConfirm = prompt("Para confirmar a exclusão definitiva de todos os dados, digite ZERAR no campo abaixo:");
+
+        if (inputConfirm && inputConfirm.trim().toUpperCase() === "ZERAR") {
+          try {
+            let res = null;
+            if (apiObj && typeof apiObj.serenaResetDatabase === "function") {
+              res = await apiObj.serenaResetDatabase();
+            } else {
+              const resp = await fetch("/api/reset-database", { method: "POST" });
+              res = await resp.json();
+            }
+
+            if (res && res.success) {
+              alert("✅ Banco de dados zerado com sucesso! Configurações da clínica mantidas.");
+              fetchSerenaMetrics();
+            } else {
+              alert("❌ Erro ao zerar banco: " + ((res && res.error) || "Tente novamente."));
+            }
+          } catch (err) {
+            console.error("[Reset DB Error]", err);
+            alert("❌ Falha na comunicação ao tentar zerar o banco.");
+          }
+        } else {
+          alert("Operação cancelada. Texto de confirmação digitado esteve incorreto.");
+        }
+      });
+    }
+
+    initSettings();
+    fetchSerenaMetrics();
+    setInterval(fetchSerenaMetrics, 10000);
+  </script>
+</body>
+</html>

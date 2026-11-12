@@ -1,0 +1,75 @@
+{
+  "name": "whatsapp-sender",
+  "version": "1.6.0",
+  "description": "WhatsApp Bulk Sender — envio unitário e por blocos via whatsapp-web.js",
+  "main": "main.js",
+  "author": "M&M Odontologia LTDA",
+  "scripts": {
+    "start": "electron .",
+    "build": "node prebuild.js && electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "com.mmodo.whatsapp-sender",
+    "productName": "MM Odontologia WhatsApp Sender",
+    "copyright": "M&M Odontologia LTDA",
+    "directories": { "output": "dist" },
+    "afterPack": "./afterPack.js",
+    "win": {
+      "target": [
+        { "target": "nsis",     "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "requestedExecutionLevel": "asInvoker",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "MM Odontologia WhatsApp Sender",
+      "deleteAppDataOnUninstall": false
+    },
+    "files": [
+      "**/*",
+      "!node_modules/puppeteer/.local-chromium/**",
+      "!node_modules/puppeteer-core/.local-chromium/**",
+      "!**/*.map",
+      "!**/test/**",
+      "!**/tests/**",
+      "!**/*.md",
+      "!dist/**",
+      "!sim-serena.js",
+      "!sim-scenarios.js",
+      "!sim-output-antes.txt",
+      "!test-regression.js",
+      "!test-matrix.js",
+      "!test-matrix-lib.js",
+      "!test-db.js",
+      "!test-send.js",
+      "!test-zelda-commands.js",
+      "!backup_antes_serena_v2_*/**",
+      "!.bob/**",
+      "!.wwebjs_cache/**",
+      "!dados/**",
+      "!whatsapp-sender.db",
+      "!clinic-settings.json",
+      "!Cenários*",
+      "!{"
+    ],
+    "extraResources": [],
+    "asar": true
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "whatsapp-web.js": "^1.34.7",
+    "qrcode": "^1.5.3",
+    "csv-parse": "^5.5.3",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "fluent-ffmpeg": "^2.1.3"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^25.1.8"
+  }
+}

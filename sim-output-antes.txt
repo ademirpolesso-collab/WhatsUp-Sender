@@ -1,0 +1,373 @@
+﻿
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+S01 ÔÇö Primeiro contato j├í com inten├º├úo (reativo)
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+
+­ƒæñ PACIENTE: Oi, queria marcar uma avalia├º├úo
+­ƒñû SERENA: Ol├í! Sou a Serena da *OdontoCompany Bela Vista Osasco*. ­ƒÿè
+          
+          _Pe├ºo desculpas antecipadas por qualquer falha ÔÇö estou em treinamento para melhor te atender!_ ­ƒÖÅ
+          
+          Por favor, qual ├® o seu nome?
+   [estado: AGUARDANDO_NOME]
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+S02 ÔÇö Fluxo feliz: sim -> pergunta melhor dia/hor├írio
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+
+­ƒæñ PACIENTE: Oi
+­ƒñû SERENA: Ol├í! Sou a Serena da *OdontoCompany Bela Vista Osasco*. ­ƒÿè
+          
+          _Pe├ºo desculpas antecipadas por qualquer falha ÔÇö estou em treinamento para melhor te atender!_ ­ƒÖÅ
+          
+          Por favor, qual ├® o seu nome?
+   [estado: AGUARDANDO_NOME]
+
+­ƒæñ PACIENTE: Maria
+­ƒñû SERENA: Maria, como posso te ajudar hoje? ­ƒÿè
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: Quero fazer um clareamento
+­ƒñû SERENA: Realizamos *todos os procedimentos odontol├│gicos*, desde consultas de rotina at├® cirurgias mais complexas! ­ƒªÀÔ£¿
+          
+          Contamos com *especialistas dedicados a cada ├írea* ÔÇö ortodontia, implantes, periodontia, endodontia, est├®tica dental, pr├│teses e muito mais ÔÇö para que voc├¬ receba o tratamento mais indicado com m├íxima qualidade.
+          
+          Na sua *avalia├º├úo gratuita*, nosso especialista avaliar├í exatamente o que voc├¬ precisa e apresentar├í o melhor plano de tratamento. Gostaria de agendar?
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: Sim, quero agendar
+­ƒñû SERENA: ├ôtimo, Maria! ­ƒÿè Para j├í deixar anotado para o nosso especialista, pode me dizer brevemente o que est├í precisando? _(ex: implante, aparelho, clareamento, limpeza...)_
+   [estado: AGUARDANDO_PREFERENCIA]
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+S03 ÔÇö Fora do escopo (dermatologista) -> desculpas + "n├úo atendemos X" + convite
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+
+­ƒæñ PACIENTE: Ol├í
+­ƒñû SERENA: Ol├í! Sou a Serena da *OdontoCompany Bela Vista Osasco*. ­ƒÿè
+          
+          _Pe├ºo desculpas antecipadas por qualquer falha ÔÇö estou em treinamento para melhor te atender!_ ­ƒÖÅ
+          
+          Por favor, qual ├® o seu nome?
+   [estado: AGUARDANDO_NOME]
+
+­ƒæñ PACIENTE: Carlos
+­ƒñû SERENA: Carlos, como posso te ajudar hoje? ­ƒÿè
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: Voc├¬s atendem dermatologista?
+­ƒñû SERENA: Carlos, verifiquei aqui nossa disponibilidade para te encaixar o quanto antes. Temos as seguintes op├º├Áes para sua avalia├º├úo gratuita:
+          
+          1´©ÅÔâú 26/10/2026 (Segunda-feira) ├ás 10:30
+          2´©ÅÔâú 26/10/2026 (Segunda-feira) ├ás 11:00
+          3´©ÅÔâú 27/10/2026 (Ter├ºa-feira) ├ás 08:00
+          
+          Qual dessas op├º├Áes fica melhor para voc├¬? Responda com o n├║mero ou me diga outro dia/hor├írio de sua prefer├¬ncia.
+   [estado: SELECIONANDO_OPCAO]
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+S04 ÔÇö Falso positivo: "primeira vez" n├úo ├® fora de escopo
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+
+­ƒæñ PACIENTE: Ol├í
+­ƒñû SERENA: Ol├í! Sou a Serena da *OdontoCompany Bela Vista Osasco*. ­ƒÿè
+          
+          _Pe├ºo desculpas antecipadas por qualquer falha ÔÇö estou em treinamento para melhor te atender!_ ­ƒÖÅ
+          
+          Por favor, qual ├® o seu nome?
+   [estado: AGUARDANDO_NOME]
+
+­ƒæñ PACIENTE: Ana
+­ƒñû SERENA: Ana, como posso te ajudar hoje? ­ƒÿè
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: ├ë minha primeira vez, quero uma avalia├º├úo
+­ƒñû SERENA: ├ôtimo, Ana! ­ƒÿè Para j├í deixar anotado para o nosso especialista, pode me dizer brevemente o que est├í precisando? _(ex: implante, aparelho, clareamento, limpeza...)_
+   [estado: AGUARDANDO_PREFERENCIA]
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+S05 ÔÇö Hor├írio fora do expediente com data (s├íbado 15h)
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+
+­ƒæñ PACIENTE: Oi
+­ƒñû SERENA: Ol├í! Sou a Serena da *OdontoCompany Bela Vista Osasco*. ­ƒÿè
+          
+          _Pe├ºo desculpas antecipadas por qualquer falha ÔÇö estou em treinamento para melhor te atender!_ ­ƒÖÅ
+          
+          Por favor, qual ├® o seu nome?
+   [estado: AGUARDANDO_NOME]
+
+­ƒæñ PACIENTE: Paulo
+­ƒñû SERENA: Paulo, como posso te ajudar hoje? ­ƒÿè
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: Quero agendar
+­ƒñû SERENA: ├ôtimo, Paulo! ­ƒÿè Para j├í deixar anotado para o nosso especialista, pode me dizer brevemente o que est├í precisando? _(ex: implante, aparelho, clareamento, limpeza...)_
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: s├íbado ├ás 15h
+­ƒñû SERENA: Entendido, Paulo! Voc├¬ quer agendamento *31/10/2026 (S├íbado), ├ás 15:00*. ­ƒÿè
+          
+          ÔÜá´©Å Infelizmente n├úo temos atendimento nesse hor├írio.
+          
+          *Hor├írio pedido:* 31/10/2026 (S├íbado) ├ás 15:00
+          *Motivo:* Aos s├íbados o atendimento ├® das 08:00 ├ás 13:00. O hor├írio 15:00 est├í fora do hor├írio.
+          
+          Mas tenho estes hor├írios dispon├¡veis para voc├¬:
+          
+          1´©ÅÔâú 31/10/2026 (S├íbado) ├ás 08:00
+          2´©ÅÔâú 31/10/2026 (S├íbado) ├ás 08:30
+          3´©ÅÔâú 31/10/2026 (S├íbado) ├ás 09:00
+          
+          Qual dessas op├º├Áes fica melhor para voc├¬?
+   [estado: SELECIONANDO_OPCAO]
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+S06 ÔÇö Hor├írio fora do expediente: noite
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+
+­ƒæñ PACIENTE: Oi
+­ƒñû SERENA: Ol├í! Sou a Serena da *OdontoCompany Bela Vista Osasco*. ­ƒÿè
+          
+          _Pe├ºo desculpas antecipadas por qualquer falha ÔÇö estou em treinamento para melhor te atender!_ ­ƒÖÅ
+          
+          Por favor, qual ├® o seu nome?
+   [estado: AGUARDANDO_NOME]
+
+­ƒæñ PACIENTE: Paulo
+­ƒñû SERENA: Paulo, como posso te ajudar hoje? ­ƒÿè
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: Quero agendar
+­ƒñû SERENA: ├ôtimo, Paulo! ­ƒÿè Para j├í deixar anotado para o nosso especialista, pode me dizer brevemente o que est├í precisando? _(ex: implante, aparelho, clareamento, limpeza...)_
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: s├│ consigo ├á noite
+­ƒñû SERENA: ÔÜá´©Å Paulo, infelizmente n├úo temos atendimento no per├¡odo da noite.
+          
+          ­ƒòÉ *Nosso funcionamento:*
+          ­ƒôà Segunda a Sexta: 08:00 ├ás 18:00
+          ­ƒôà S├íbado: 08:00 ├ás 13:00
+          
+          Mas tenho estes hor├írios dispon├¡veis para voc├¬:
+          
+          1´©ÅÔâú 26/10/2026 (Segunda-feira) ├ás 10:30
+          2´©ÅÔâú 26/10/2026 (Segunda-feira) ├ás 11:00
+          3´©ÅÔâú 27/10/2026 (Ter├ºa-feira) ├ás 08:00
+          
+          Qual dessas op├º├Áes fica melhor para voc├¬?
+   [estado: SELECIONANDO_OPCAO]
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+S07 ÔÇö Domingo
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+
+­ƒæñ PACIENTE: Oi
+­ƒñû SERENA: Ol├í! Sou a Serena da *OdontoCompany Bela Vista Osasco*. ­ƒÿè
+          
+          _Pe├ºo desculpas antecipadas por qualquer falha ÔÇö estou em treinamento para melhor te atender!_ ­ƒÖÅ
+          
+          Por favor, qual ├® o seu nome?
+   [estado: AGUARDANDO_NOME]
+
+­ƒæñ PACIENTE: Paulo
+­ƒñû SERENA: Paulo, como posso te ajudar hoje? ­ƒÿè
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: Quero agendar
+­ƒñû SERENA: ├ôtimo, Paulo! ­ƒÿè Para j├í deixar anotado para o nosso especialista, pode me dizer brevemente o que est├í precisando? _(ex: implante, aparelho, clareamento, limpeza...)_
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: domingo de manh├ú
+­ƒñû SERENA: Entendido, Paulo! Voc├¬ quer agendamento *01/11/2026 (Domingo), pela manh├ú*. ­ƒÿè
+          
+          Para 01/11/2026 (Domingo) n├úo temos mais hor├írios dispon├¡veis, mas encontrei op├º├Áes bem pr├│ximas para voc├¬:
+          
+          1´©ÅÔâú 26/10/2026 (Segunda-feira) ├ás 10:30
+          2´©ÅÔâú 26/10/2026 (Segunda-feira) ├ás 11:00
+          3´©ÅÔâú 27/10/2026 (Ter├ºa-feira) ├ás 08:00
+          
+          Qual dessas op├º├Áes voc├¬ prefere?
+   [estado: SELECIONANDO_OPCAO]
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+S08 ÔÇö "n├úo quero ir de manh├ú" n├úo pode virar opt-out
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+
+­ƒæñ PACIENTE: Oi
+­ƒñû SERENA: Ol├í! Sou a Serena da *OdontoCompany Bela Vista Osasco*. ­ƒÿè
+          
+          _Pe├ºo desculpas antecipadas por qualquer falha ÔÇö estou em treinamento para melhor te atender!_ ­ƒÖÅ
+          
+          Por favor, qual ├® o seu nome?
+   [estado: AGUARDANDO_NOME]
+
+­ƒæñ PACIENTE: Lia
+­ƒñû SERENA: Lia, como posso te ajudar hoje? ­ƒÿè
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: Quero agendar
+­ƒñû SERENA: ├ôtimo, Lia! ­ƒÿè Para j├í deixar anotado para o nosso especialista, pode me dizer brevemente o que est├í precisando? _(ex: implante, aparelho, clareamento, limpeza...)_
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: n├úo quero ir de manh├ú, prefiro ├á tarde
+­ƒñû SERENA: Tudo bem! N├úo enviaremos mais mensagens por aqui. Se precisar de algo no futuro, estamos sempre ├á disposi├º├úo na OdontoCompany Bela Vista Osasco. Tenha um excelente dia!
+   [estado: OPT_OUT]
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+S09 ÔÇö "dentista" n├úo pode transferir ├á recep├º├úo
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+
+­ƒæñ PACIENTE: Oi
+­ƒñû SERENA: Ol├í! Sou a Serena da *OdontoCompany Bela Vista Osasco*. ­ƒÿè
+          
+          _Pe├ºo desculpas antecipadas por qualquer falha ÔÇö estou em treinamento para melhor te atender!_ ­ƒÖÅ
+          
+          Por favor, qual ├® o seu nome?
+   [estado: AGUARDANDO_NOME]
+
+­ƒæñ PACIENTE: Rui
+­ƒñû SERENA: Rui, como posso te ajudar hoje? ­ƒÿè
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: Preciso ir ao dentista, faz tempo que n├úo vou
+­ƒñû SERENA: Com certeza! Vou passar seu contato agora para a nossa recep├º├úo entrar em contato com voc├¬ o quanto antes.
+­ƒñû SERENA: O prospect "Rui" e telefone 5511988887777, est├í solicitando contato. Obrigado Serena
+   [estado: TRANSFERIDO_RECEPCAO]
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+S10 ÔÇö Confirma├º├úo com "n├úo, pode ser outro dia"
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+
+­ƒæñ PACIENTE: Oi
+­ƒñû SERENA: Ol├í! Sou a Serena da *OdontoCompany Bela Vista Osasco*. ­ƒÿè
+          
+          _Pe├ºo desculpas antecipadas por qualquer falha ÔÇö estou em treinamento para melhor te atender!_ ­ƒÖÅ
+          
+          Por favor, qual ├® o seu nome?
+   [estado: AGUARDANDO_NOME]
+
+­ƒæñ PACIENTE: Rui
+­ƒñû SERENA: Rui, como posso te ajudar hoje? ­ƒÿè
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: Quero agendar
+­ƒñû SERENA: ├ôtimo, Rui! ­ƒÿè Para j├í deixar anotado para o nosso especialista, pode me dizer brevemente o que est├í precisando? _(ex: implante, aparelho, clareamento, limpeza...)_
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: quarta ├ás 10h
+­ƒñû SERENA: Entendido, Rui! Voc├¬ quer agendamento *28/10/2026 (Quarta-feira), ├ás 10:00*. ­ƒÿè
+          
+          Ô£à ├ôtima not├¡cia ÔÇö esse hor├írio est├í dispon├¡vel!
+          
+          ­ƒôà *28/10/2026 (Quarta-feira) ├ás 10:00*
+          ÔÅ▒ Dura├º├úo: aproximadamente 30 minutos
+          
+          Posso confirmar seu agendamento para a avalia├º├úo gratuita? (Responda *1* para Confirmar ou *2* para escolher outro hor├írio)
+   [estado: CONFIRMANDO_AGENDAMENTO]
+
+­ƒæñ PACIENTE: n├úo, pode ser outro dia
+­ƒñû SERENA: ­ƒÄë *Agendamento Confirmado!*
+          
+          Perfeito, *Rui*! Sua avalia├º├úo gratuita est├í marcada:
+          
+          ­ƒôà *Data:* 28/10/2026 (Quarta-feira)
+          ­ƒòÉ *Hor├írio:* 10:00
+          ÔÅ▒ *Dura├º├úo:* aproximadamente 30 minutos
+          ­ƒôì *Local:* Av. Ant├┤nio Carlos Costa, 991 ÔÇö Bela Vista, Osasco/SP
+          ­ƒªÀ *Motivo informado:* Quarta ├ás 10h
+          
+          Ô£¿ A avalia├º├úo ├® *100% gratuita* e inclui RX Panor├ómico e Escaneamento 5D!
+          
+          ­ƒÆ░ Na consulta, nosso especialista apresentar├í as *melhores condi├º├Áes de pre├ºo e parcelamento* dispon├¡veis para o seu caso ÔÇö tudo de forma clara e sem compromisso. Te esperamos! ­ƒÿè
+­ƒñû SERENA: Rui, posso te ajudar em algo mais? ├ë s├│ falar! ­ƒÿè
+­ƒñû SERENA: Ô£à Serena agendou: *Rui* | ­ƒô▒ 5511988887777 | ­ƒôà 28/10/2026 (Quarta-feira) ├ás 10:00 | ÔÅ▒ 30 min | ­ƒªÀ Necessidade: quarta ├ás 10h
+   [estado: AGUARDANDO_PREFERENCIA]
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+S11 ÔÇö Paciente com pushName e mensagem com inten├º├úo
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+
+­ƒæñ PACIENTE: Bom dia, voc├¬s fazem implante?
+­ƒñû SERENA: Realizamos *todos os procedimentos odontol├│gicos*, desde consultas de rotina at├® cirurgias mais complexas! ­ƒªÀÔ£¿
+          
+          Contamos com *especialistas dedicados a cada ├írea* ÔÇö ortodontia, implantes, periodontia, endodontia, est├®tica dental, pr├│teses e muito mais ÔÇö para que voc├¬ receba o tratamento mais indicado com m├íxima qualidade.
+          
+          Na sua *avalia├º├úo gratuita*, nosso especialista avaliar├í exatamente o que voc├¬ precisa e apresentar├í o melhor plano de tratamento. Gostaria de agendar?
+   [estado: AGUARDANDO_NOME]
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+S12 ÔÇö Pre├ºo (nunca informa valor)
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+
+­ƒæñ PACIENTE: Ol├í
+­ƒñû SERENA: Ol├í! Sou a Serena da *OdontoCompany Bela Vista Osasco*. ­ƒÿè
+          
+          _Pe├ºo desculpas antecipadas por qualquer falha ÔÇö estou em treinamento para melhor te atender!_ ­ƒÖÅ
+          
+          Por favor, qual ├® o seu nome?
+   [estado: AGUARDANDO_NOME]
+
+­ƒæñ PACIENTE: Bia
+­ƒñû SERENA: Bia, como posso te ajudar hoje? ­ƒÿè
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: Quanto custa um aparelho?
+­ƒñû SERENA: ├ôtima pergunta! ­ƒÿè Os valores variam de acordo com as condi├º├Áes e necessidades de cada paciente ÔÇö cada sorriso ├® ├║nico e merece um plano personalizado.
+          
+          ­ƒÆí O que posso *garantir* ├® que a OdontoCompany Bela Vista Osasco oferece:
+          Ô£à *As melhores condi├º├Áes de pre├ºo do mercado*
+          Ô£à *Parcelamento facilitado* ÔÇö para caber no seu bolso
+          Ô£à Tudo apresentado de forma transparente e personalizada na sua *avalia├º├úo gratuita*
+          
+          A avalia├º├úo j├í inclui *RX Panor├ómico* e *Escaneamento 5D* sem custo algum! ­ƒªÀÔ£¿
+          
+          Bia, que tal agendar agora sua avalia├º├úo gratuita para conhecer todas as condi├º├Áes? ­ƒÿä
+   [estado: AGUARDANDO_PREFERENCIA]
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+S13 ÔÇö Dor (urg├¬ncia)
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+
+­ƒæñ PACIENTE: Ol├í, estou com muita dor de dente
+­ƒñû SERENA: Entendo perfeitamente e vejo que ├® uma situa├º├úo de urg├¬ncia! J├í estou acionando nossa equipe agora mesmo com prioridade para te atender o mais r├ípido poss├¡vel.
+­ƒñû SERENA: ­ƒÜ¿ URG├èNCIA ODONTOL├ôGICA!
+          Paciente: Nome a confirmar
+          Telefone: 5511988887777
+          Relato: "Ol├í, estou com muita dor de dente"
+          Por favor, entrar em contato imediatamente!
+   [estado: EMERGENCIA]
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+S14 ÔÇö "Sim" gen├®rico ap├│s convite fora do escopo
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+
+­ƒæñ PACIENTE: Ol├í
+­ƒñû SERENA: Ol├í! Sou a Serena da *OdontoCompany Bela Vista Osasco*. ­ƒÿè
+          
+          _Pe├ºo desculpas antecipadas por qualquer falha ÔÇö estou em treinamento para melhor te atender!_ ­ƒÖÅ
+          
+          Por favor, qual ├® o seu nome?
+   [estado: AGUARDANDO_NOME]
+
+­ƒæñ PACIENTE: Carlos
+­ƒñû SERENA: Carlos, como posso te ajudar hoje? ­ƒÿè
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: Voc├¬s fazem cirurgia pl├ística?
+­ƒñû SERENA: Realizamos *todos os procedimentos odontol├│gicos*, desde consultas de rotina at├® cirurgias mais complexas! ­ƒªÀÔ£¿
+          
+          Contamos com *especialistas dedicados a cada ├írea* ÔÇö ortodontia, implantes, periodontia, endodontia, est├®tica dental, pr├│teses e muito mais ÔÇö para que voc├¬ receba o tratamento mais indicado com m├íxima qualidade.
+          
+          Na sua *avalia├º├úo gratuita*, nosso especialista avaliar├í exatamente o que voc├¬ precisa e apresentar├í o melhor plano de tratamento. Gostaria de agendar?
+   [estado: AGUARDANDO_PREFERENCIA]
+
+­ƒæñ PACIENTE: sim, tenho interesse
+­ƒñû SERENA: Carlos, verifiquei aqui nossa disponibilidade para te encaixar o quanto antes. Temos as seguintes op├º├Áes para sua avalia├º├úo gratuita:
+          
+          1´©ÅÔâú 26/10/2026 (Segunda-feira) ├ás 10:30
+          2´©ÅÔâú 26/10/2026 (Segunda-feira) ├ás 11:00
+          3´©ÅÔâú 27/10/2026 (Ter├ºa-feira) ├ás 08:00
+          
+          Qual dessas op├º├Áes fica melhor para voc├¬? Responda com o n├║mero ou me diga outro dia/hor├írio de sua prefer├¬ncia.
+   [estado: SELECIONANDO_OPCAO]

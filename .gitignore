@@ -1,0 +1,11 @@
+﻿node_modules/
+dist/
+build/
+.wwebjs_auth/
+.wwebjs_cache/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+serena-db.json
+.env

@@ -1,0 +1,3012 @@
+<!-- SERENA_CLINIC_CONFIG_START -->
+<script id="serena-clinic-config-inline">
+(function () {
+  if (window.__serenaUiInjectorBootedV4) return;
+  window.__serenaUiInjectorBootedV4 = true;
+
+  var SERENA_DEFAULTS = /*__SERENA_DEFAULTS_START__*/{"assistantName":"Serena","clinicName":"OdontoCompany Bela Vista Osasco","clinicAddress":"Av Antonio Carlos Costa 991","parkingInfo":"Estacionamento no local","receptionName":"Recepção","receptionWhatsapp":"","crcEnabled":true,"zeldaGroupEnabled":true,"zeldaGroupTarget":"","zeldaCaretakerPhone":"","zeldaApprovalQuorum":3,"zeldaAllowFromMeTest":true,"maxActiveMessagesPerHour":30,"enableSpintax":true,"enableOptOutBlacklist":true,"serenaKeepUnreadForHuman":true}/*__SERENA_DEFAULTS_END__*/;
+  var STORAGE_KEY = "serena_clinic_settings_v2";
+  var ZELDA_TASKS_KEY = "zelda_condominio_activities_v1";
+  var DASH_DATE_KEY = "serena_dashboard_date_filter_v1";
+
+  var liveWaConn = { connected: false, stateLabel: "Desconectada (WhatsApp Offline)", phone: "" };
+  var activeSettingsScreen = "geral"; // "geral" | "zelda"
+  var lastClickedSection = ""; // "serena_dashboard" | "zelda_condominio" | "config_geral" | "config_zelda" | "other"
+  var serenaDashFilter = "all";
+  try {
+    var savedDf = localStorage.getItem(DASH_DATE_KEY);
+    if (savedDf) serenaDashFilter = savedDf;
+  } catch (e) {}
+  var cachedDashMetrics = null;
+  var cachedZeldaDebugEvents = [];
+  var cachedZeldaDiscoveredGroups = [];
+
+  // Auto-conecta runtimeAutoHook.cjs caso o cliente WhatsApp rode em um Electron Renderer com nodeIntegration
+  try {
+    var __uiNodeReq = typeof window.require === "function" ? window.require : null;
+    if (__uiNodeReq && !window.__serenaRendererAutoHookLoaded) {
+      window.__serenaRendererAutoHookLoaded = true;
+      var __uiPath = __uiNodeReq("path");
+      var __uiFs = __uiNodeReq("fs");
+      var __uiHookCands = [];
+      if (window.process && typeof window.process.cwd === "function") {
+        __uiHookCands.push(__uiPath.join(window.process.cwd(), "configuracoes", "runtimeAutoHook.cjs"));
+      }
+      if (window.process && window.process.resourcesPath) {
+        __uiHookCands.push(__uiPath.join(window.process.resourcesPath, "app", "configuracoes", "runtimeAutoHook.cjs"));
+        __uiHookCands.push(__uiPath.join(window.process.resourcesPath, "configuracoes", "runtimeAutoHook.cjs"));
+      }
+      for (var __hi = 0; __hi < __uiHookCands.length; __hi++) {
+        if (__uiFs.existsSync(__uiHookCands[__hi])) {
+          __uiNodeReq(__uiHookCands[__hi]);
+          break;
+        }
+      }
+    }
+  } catch (_eRendererHook) {}
+
+  // 0. ESTABILIZADOR ANTI-FLICKER (impede pisca-pisca de re-render/animações no Dashboard)
+  function injectAntiFlickerCss() {
+    if (document.getElementById("serena-anti-flicker-style")) return;
+    var st = document.createElement("style");
+    st.id = "serena-anti-flicker-style";
+    st.textContent =
+      "body.serena-stable-ui [class*='card'], body.serena-stable-ui [class*='stat'], body.serena-stable-ui [class*='kpi'], body.serena-stable-ui [class*='metric'], body.serena-stable-ui [class*='dashboard'] { animation: none !important; transition: background-color 0.15s ease, border-color 0.15s ease !important; }" +
+      "[data-serena-managed='1'] { contain: layout style; }";
+    (document.head || document.documentElement).appendChild(st);
+    setTimeout(function () {
+      if (document.body) document.body.classList.add("serena-stable-ui");
+    }, 900);
+  }
+  injectAntiFlickerCss();
+
+  function setTextIfChanged(el, nextText) {
+    if (!el) return;
+    var s = String(nextText === undefined || nextText === null ? "" : nextText);
+    if (el.textContent !== s) el.textContent = s;
+  }
+
+  function setColorIfChanged(el, nextColor) {
+    if (!el || !nextColor) return;
+    if (el.getAttribute("data-serena-col") !== nextColor) {
+      el.setAttribute("data-serena-col", nextColor);
+      el.style.color = nextColor;
+    }
+  }
+
+  // Datas em America/Sao_Paulo SEM usar new Date("YYYY-MM-DD") (zero desvio UTC-3!)
+  function getBrtIsoDate(offsetDays) {
+    var d = new Date(Date.now() + (Number(offsetDays || 0) * 86400000));
+    var fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Sao_Paulo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    });
+    var parts = fmt.formatToParts(d);
+    var map = {};
+    for (var i = 0; i < parts.length; i++) map[parts[i].type] = parts[i].value;
+    return map.year + "-" + map.month + "-" + map.day;
+  }
+
+  function formatIsoPtBr(iso) {
+    var m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return m ? (m[3] + "/" + m[2] + "/" + m[1]) : String(iso || "");
+  }
+
+  function readNodeJsonCandidates(relSubPath) {
+    try {
+      var req = typeof window.require === "function" ? window.require : null;
+      if (!req) return null;
+      var fsMod = req("fs");
+      var pathMod = req("path");
+      var candidates = [];
+      if (window.process && window.process.resourcesPath) {
+        candidates.push(pathMod.join(window.process.resourcesPath, "app", relSubPath));
+        candidates.push(pathMod.join(window.process.resourcesPath, "..", relSubPath));
+      }
+      if (window.process && typeof window.process.cwd === "function") {
+        candidates.push(pathMod.join(window.process.cwd(), relSubPath));
+      }
+      if (window.process && window.process.env && window.process.env.APPDATA) {
+        candidates.push(pathMod.join(window.process.env.APPDATA, "mm-sender", relSubPath));
+      }
+      if (window.process && window.process.env && window.process.env.LOCALAPPDATA) {
+        candidates.push(pathMod.join(window.process.env.LOCALAPPDATA, "mm-sender", relSubPath));
+      }
+      var bestParsed = null;
+      var bestMtime = -1;
+      for (var i = 0; i < candidates.length; i++) {
+        try {
+          if (fsMod.existsSync(candidates[i])) {
+            var st = fsMod.statSync(candidates[i]);
+            var parsed = JSON.parse(fsMod.readFileSync(candidates[i], "utf-8"));
+            if (parsed !== null && parsed !== undefined && Number(st.mtimeMs || 0) >= bestMtime) {
+              bestMtime = Number(st.mtimeMs || 0);
+              bestParsed = parsed;
+            }
+          }
+        } catch (errCand) {}
+      }
+      if (bestParsed !== null) return bestParsed;
+    } catch (e) {}
+    return null;
+  }
+
+  function writeNodeJsonCandidates(relSubPath, data) {
+    try {
+      var req = typeof window.require === "function" ? window.require : null;
+      if (!req) return false;
+      var fsMod = req("fs");
+      var pathMod = req("path");
+      var targets = [];
+      if (window.process && window.process.env && window.process.env.APPDATA) {
+        targets.push(pathMod.join(window.process.env.APPDATA, "mm-sender", relSubPath));
+      }
+      if (window.process && typeof window.process.cwd === "function") {
+        targets.push(pathMod.join(window.process.cwd(), relSubPath));
+      }
+      var wrote = false;
+      for (var i = 0; i < targets.length; i++) {
+        try {
+          fsMod.mkdirSync(pathMod.dirname(targets[i]), { recursive: true });
+          fsMod.writeFileSync(targets[i], JSON.stringify(data, null, 2), "utf-8");
+          wrote = true;
+        } catch (errInner) {}
+      }
+      return wrote;
+    } catch (e) {}
+    return false;
+  }
+
+  function readNodeFsSettings() {
+    return readNodeJsonCandidates("configuracoes/clinic-settings.json") || readNodeJsonCandidates("clinic-settings.json");
+  }
+
+  function writeNodeFsSettings(data) {
+    writeNodeJsonCandidates("clinic-settings.json", data);
+    return writeNodeJsonCandidates("configuracoes/clinic-settings.json", data);
+  }
+
+  function getCachedSettings() {
+    var fromFs = readNodeFsSettings();
+    if (fromFs && (fromFs.clinicName || fromFs.clinicAddress || fromFs.address)) {
+      return Object.assign({}, SERENA_DEFAULTS, fromFs, {
+        clinicName: fromFs.clinicName || SERENA_DEFAULTS.clinicName,
+        clinicAddress: fromFs.clinicAddress || fromFs.address || SERENA_DEFAULTS.clinicAddress,
+        zeldaGroupTarget: fromFs.zeldaGroupTarget || fromFs.grupoZelda || SERENA_DEFAULTS.zeldaGroupTarget
+      });
+    }
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        return Object.assign({}, SERENA_DEFAULTS, parsed, {
+          clinicName: parsed.clinicName || SERENA_DEFAULTS.clinicName,
+          clinicAddress: parsed.clinicAddress || parsed.address || SERENA_DEFAULTS.clinicAddress,
+          zeldaGroupTarget: parsed.zeldaGroupTarget || parsed.grupoZelda || SERENA_DEFAULTS.zeldaGroupTarget
+        });
+      }
+    } catch (e) {}
+    return Object.assign({}, SERENA_DEFAULTS);
+  }
+
+  function detectNativeDomWhatsAppOnline() {
+    var badges = document.querySelectorAll("aside span, aside div, header span, header div, nav span, [class*='status'], [class*='badge']");
+    for (var i = 0; i < badges.length; i++) {
+      var b = badges[i];
+      if (b.children.length > 1 || b.closest("[data-serena-managed='1']")) continue;
+      var t = (b.textContent || "").replace(/\s+/g, " ").trim();
+      if (!t || t.length > 55) continue;
+      if (/whatsapp\s+(conectado|online)|sess[aã]o\s+ativa|^conectado$/i.test(t) && !/desconectad|offline|off\s*line/i.test(t)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function readRealWhatsAppConnection() {
+    var rawConn = readNodeJsonCandidates("dados/whatsapp-connection-status.json");
+    if (rawConn && typeof rawConn === "object") {
+      var age = Date.now() - Number(rawConn.heartbeatEpochMs || 0);
+      var isFresh = Boolean(rawConn.connected) && age >= 0 && age <= 180000;
+      var ph = String(rawConn.connectedPhone || rawConn.phone || "");
+      if (isFresh || detectNativeDomWhatsAppOnline()) {
+        liveWaConn = { connected: true, stateLabel: "Conectada (WhatsApp Online)", phone: ph };
+      } else {
+        liveWaConn = { connected: false, stateLabel: "Desconectada (WhatsApp Offline)", phone: "" };
+      }
+      return liveWaConn;
+    }
+    if (detectNativeDomWhatsAppOnline()) {
+      liveWaConn = { connected: true, stateLabel: "Conectada (WhatsApp Online)", phone: liveWaConn.phone || "" };
+    }
+    return liveWaConn;
+  }
+
+  function mergeRemoteZeldaActivitiesIntoCache(remoteArr) {
+    if (!Array.isArray(remoteArr)) return false;
+    var current = getZeldaActivities();
+    var localMap = {};
+    for (var i = 0; i < current.length; i++) {
+      if (current[i] && current[i].id) localMap[String(current[i].id)] = current[i];
+    }
+    var changed = remoteArr.length !== current.length;
+    var merged = [];
+    for (var j = 0; j < remoteArr.length; j++) {
+      var r = remoteArr[j];
+      if (!r || typeof r !== "object") continue;
+      var rid = String(r.id || "");
+      var loc = rid ? localMap[rid] : null;
+      if (loc) {
+        var rTs = typeof r.updatedAtEpochMs === "number" ? r.updatedAtEpochMs : 0;
+        var lTs = typeof loc.updatedAtEpochMs === "number" ? loc.updatedAtEpochMs : 0;
+        if (lTs > 0 && rTs > 0 && lTs > rTs) {
+          merged.push(loc);
+          continue;
+        }
+        if (JSON.stringify(loc) !== JSON.stringify(r)) changed = true;
+      } else {
+        changed = true;
+      }
+      merged.push(r);
+    }
+    if (changed) {
+      try { localStorage.setItem(ZELDA_TASKS_KEY, JSON.stringify(merged)); } catch (e) {}
+      try { window.dispatchEvent(new CustomEvent("zelda-activities-synced")); } catch (e) {}
+    }
+    return changed;
+  }
+
+  function updateZeldaLiveTelemetry(groupsArr, debugArr) {
+    var changed = false;
+    if (Array.isArray(groupsArr) && JSON.stringify(groupsArr) !== JSON.stringify(cachedZeldaDiscoveredGroups)) {
+      cachedZeldaDiscoveredGroups = groupsArr;
+      changed = true;
+    }
+    if (Array.isArray(debugArr) && JSON.stringify(debugArr) !== JSON.stringify(cachedZeldaDebugEvents)) {
+      cachedZeldaDebugEvents = debugArr;
+      changed = true;
+    }
+    if (changed) {
+      try { window.dispatchEvent(new CustomEvent("zelda-debug-synced")); } catch (e) {}
+    }
+  }
+
+  async function refreshConnectionAndMetricsFromApis() {
+    readRealWhatsAppConnection();
+    var fsDbg = readNodeJsonCandidates("dados/zelda-group-debug.json");
+    var fsGrps = readNodeJsonCandidates("dados/zelda-discovered-groups.json");
+    if (Array.isArray(fsGrps) || Array.isArray(fsDbg)) {
+      updateZeldaLiveTelemetry(fsGrps || cachedZeldaDiscoveredGroups, fsDbg || cachedZeldaDebugEvents);
+    }
+    var syncedActivities = false;
+    try {
+      var req = typeof window.require === "function" ? window.require : null;
+      if (req) {
+        var electron = req("electron");
+        if (electron && electron.ipcRenderer) {
+          var st = await electron.ipcRenderer.invoke("zelda:get-condominio-state");
+          if (st && st.connection) {
+            var isConn = Boolean(st.connection.connected) || detectNativeDomWhatsAppOnline();
+            liveWaConn = {
+              connected: isConn,
+              stateLabel: isConn ? "Conectada (WhatsApp Online)" : "Desconectada (WhatsApp Offline)",
+              phone: String(st.connection.connectedPhone || st.connection.phone || "")
+            };
+          }
+          if (st && Array.isArray(st.activities)) {
+            mergeRemoteZeldaActivitiesIntoCache(st.activities);
+            syncedActivities = true;
+          }
+          if (st && (Array.isArray(st.discoveredGroups) || Array.isArray(st.debugEvents))) {
+            updateZeldaLiveTelemetry(st.discoveredGroups || cachedZeldaDiscoveredGroups, st.debugEvents || cachedZeldaDebugEvents);
+          }
+        }
+      }
+    } catch (e) {}
+    try {
+      var respApi = await fetch("/api/zelda-condominio/state");
+      if (respApi.ok) {
+        var jsApi = await respApi.json();
+        if (jsApi && Array.isArray(jsApi.activities) && !syncedActivities) {
+          mergeRemoteZeldaActivitiesIntoCache(jsApi.activities);
+          syncedActivities = true;
+        }
+        if (jsApi && (Array.isArray(jsApi.discoveredGroups) || Array.isArray(jsApi.debugEvents))) {
+          updateZeldaLiveTelemetry(jsApi.discoveredGroups || cachedZeldaDiscoveredGroups, jsApi.debugEvents || cachedZeldaDebugEvents);
+        }
+      }
+    } catch (e) {}
+    try {
+      var resp = await fetch("http://127.0.0.1:17890/status");
+      if (resp.ok) {
+        var js = await resp.json();
+        if (js && js.whatsappConnection) {
+          var daemonConn = Boolean(js.whatsappConnection.connected) || detectNativeDomWhatsAppOnline();
+          liveWaConn = {
+            connected: daemonConn,
+            stateLabel: daemonConn ? "Conectada (WhatsApp Online)" : "Desconectada (WhatsApp Offline)",
+            phone: String(js.whatsappConnection.connectedPhone || js.whatsappConnection.phone || "")
+          };
+        }
+        if (js && Array.isArray(js.zeldaActivities) && !syncedActivities) {
+          mergeRemoteZeldaActivitiesIntoCache(js.zeldaActivities);
+        }
+        if (js && (Array.isArray(js.zeldaDiscoveredGroups) || Array.isArray(js.zeldaGroupDebug))) {
+          updateZeldaLiveTelemetry(js.zeldaDiscoveredGroups || cachedZeldaDiscoveredGroups, js.zeldaGroupDebug || cachedZeldaDebugEvents);
+        }
+      }
+    } catch (e) {}
+
+    await refreshDashboardMetricsAsync(serenaDashFilter);
+    syncAllScreenStates();
+  }
+
+  // Lê métricas diárias ou Total Geral da Serena (fuso America/Sao_Paulo)
+  async function refreshDashboardMetricsAsync(dateFilter) {
+    var targetFilter = dateFilter || "all";
+    // 1) Leitura direta via Node (Electron com nodeIntegration)
+    try {
+      var req = typeof window.require === "function" ? window.require : null;
+      if (req && window.process && typeof window.process.cwd === "function") {
+        var pathMod = req("path");
+        var fsMod = req("fs");
+        var engPath = pathMod.join(window.process.cwd(), "configuracoes", "serenaDashboardEngine.cjs");
+        if (fsMod.existsSync(engPath)) {
+          var dashEng = req(engPath);
+          if (dashEng && typeof dashEng.computeDashboardMetrics === "function") {
+            cachedDashMetrics = dashEng.computeDashboardMetrics(targetFilter);
+            return cachedDashMetrics;
+          }
+        }
+      }
+    } catch (eNode) {}
+
+    // 2) Electron IPC
+    try {
+      var req2 = typeof window.require === "function" ? window.require : null;
+      if (req2) {
+        var el2 = req2("electron");
+        if (el2 && el2.ipcRenderer) {
+          var ipcM = await el2.ipcRenderer.invoke("serena:get-dashboard-metrics", targetFilter);
+          if (ipcM && typeof ipcM.leadsEntrada === "number") {
+            cachedDashMetrics = ipcM;
+            return cachedDashMetrics;
+          }
+        }
+      }
+    } catch (eIpc) {}
+
+    // 3) API Express interna do mm-sender
+    try {
+      var rApi = await fetch("/api/serena-dashboard/metrics?date=" + encodeURIComponent(targetFilter));
+      if (rApi.ok) {
+        var jApi = await rApi.json();
+        if (jApi && typeof jApi.leadsEntrada === "number") {
+          cachedDashMetrics = jApi;
+          return cachedDashMetrics;
+        }
+      }
+    } catch (eApi) {}
+
+    // 4) Daemon PowerShell local 127.0.0.1:17890
+    try {
+      var rDaemon = await fetch("http://127.0.0.1:17890/dashboard-metrics?date=" + encodeURIComponent(targetFilter));
+      if (rDaemon.ok) {
+        var jDaemon = await rDaemon.json();
+        if (jDaemon && typeof jDaemon.leadsEntrada === "number") {
+          cachedDashMetrics = jDaemon;
+          return cachedDashMetrics;
+        }
+      }
+    } catch (eDaemon) {}
+
+    return cachedDashMetrics;
+  }
+
+  function getZeldaActivities() {
+    var fsList = readNodeJsonCandidates("dados/zelda-condominio-atividades.json");
+    if (Array.isArray(fsList)) {
+      try { localStorage.setItem(ZELDA_TASKS_KEY, JSON.stringify(fsList)); } catch (e) {}
+      return fsList;
+    }
+    try {
+      var raw = localStorage.getItem(ZELDA_TASKS_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  }
+
+  async function saveZeldaActivities(list, outboxText) {
+    var clean = Array.isArray(list) ? list : [];
+    try { localStorage.setItem(ZELDA_TASKS_KEY, JSON.stringify(clean)); } catch (e) {}
+    writeNodeJsonCandidates("dados/zelda-condominio-atividades.json", clean);
+    if (outboxText) {
+      var cfg = getCachedSettings();
+      var q = readNodeJsonCandidates("dados/zelda-outbox-queue.json");
+      var qArr = Array.isArray(q) ? q : [];
+      qArr.push({
+        id: "out_" + Date.now(),
+        targetGroup: cfg.zeldaGroupTarget || "",
+        text: outboxText,
+        sent: false,
+        createdAt: new Date().toLocaleString("pt-BR")
+      });
+      writeNodeJsonCandidates("dados/zelda-outbox-queue.json", qArr);
+    }
+    try {
+      var req = typeof window.require === "function" ? window.require : null;
+      if (req) {
+        var electron = req("electron");
+        if (electron && electron.ipcRenderer) {
+          await electron.ipcRenderer.invoke("zelda:save-activities", { activities: clean, outboxText: outboxText || "" });
+        }
+      }
+    } catch (e) {}
+    try {
+      await fetch("/api/zelda-condominio/activities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activities: clean, outboxText: outboxText || "" })
+      });
+    } catch (e) {}
+    try {
+      await fetch("http://127.0.0.1:17890/zelda-activities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activities: clean, outboxText: outboxText || "" })
+      });
+    } catch (e) {}
+    return clean;
+  }
+
+  function formatWhatsAppList(activities, groupName) {
+    var open = activities.filter(function (a) { return a.status !== "concluida" && a.status !== "reprovada"; });
+    var stamp = new Date().toLocaleString("pt-BR");
+    var grp = groupName || "Grupo Configurado";
+    var cfg = getCachedSettings();
+    var quorum = Math.max(1, Number(cfg.zeldaApprovalQuorum) || 3);
+    if (!open.length) {
+      return "📋 *INICIATIVAS DO CONDOMÍNIO — " + grp + "*\n_Atualizado em " + stamp + "_\n\n✅ Nenhuma iniciativa em aberto no momento.\n_Para incluir pelo grupo: *Zelda Inserir Iniciativa*_";
+    }
+    var lines = [
+      "📋 *INICIATIVAS DO CONDOMÍNIO — " + grp + "*",
+      "_Atualizado em " + stamp + " · Total em aberto: " + open.length + "_",
+      ""
+    ];
+    for (var i = 0; i < open.length; i++) {
+      var it = open[i];
+      var icon = it.status === "em_votacao" ? "🗳️" : (it.status === "aprovada" ? "☑️" : (it.status === "em_andamento" ? "🔄" : "⏳"));
+      var stTxt = it.status === "em_votacao" ? "Em votação" : (it.status === "aprovada" ? "Aprovada" : (it.status === "em_andamento" ? "Em andamento" : "Pendente"));
+      var row = icon + " *#" + it.code + "* — " + it.title;
+      var meta = ["Status: " + stTxt];
+      if (it.area) meta.push("Local: " + it.area);
+      if (it.responsible) meta.push("Resp: " + it.responsible);
+      if (it.dueDate) meta.push("Prazo: " + it.dueDate);
+      if (Array.isArray(it.votes) && (it.votes.length > 0 || it.status === "em_votacao")) {
+        var fav = it.votes.filter(function (v) { return v.choice === "favor"; }).length;
+        var con = it.votes.filter(function (v) { return v.choice === "contra"; }).length;
+        meta.push("Votos: " + fav + "/" + quorum + " favor · " + con + " contra");
+      }
+      if (meta.length) row += "\n   └ _" + meta.join(" · ") + "_";
+      if (it.notes) row += "\n   📝 " + it.notes;
+      lines.push(row);
+    }
+    lines.push("");
+    lines.push("💬 *Comandos no grupo:* Zelda Inserir Iniciativa · Zelda Alterar data · Zelda Votar · Zelda Concluir · Zelda Lista");
+    return lines.join("\n");
+  }
+
+  async function loadLatestSettingsAsync() {
+    var current = getCachedSettings();
+    try {
+      var syncResp = await fetch("http://127.0.0.1:17890/status");
+      if (syncResp.ok) {
+        var syncJson = await syncResp.json();
+        if (syncJson && syncJson.settings && syncJson.settings.clinicName) {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(syncJson.settings));
+          return syncJson.settings;
+        }
+      }
+    } catch (e) {}
+    return current;
+  }
+
+  async function persistSettingsEverywhere(payload) {
+    var base = getCachedSettings();
+    var aName = String(payload.assistantName !== undefined ? payload.assistantName : (base.assistantName || "Serena")).trim() || "Serena";
+    var cName = String(payload.clinicName !== undefined ? payload.clinicName : base.clinicName).trim() || SERENA_DEFAULTS.clinicName;
+    var cAddr = String(payload.clinicAddress !== undefined ? payload.clinicAddress : (payload.address || base.clinicAddress)).trim() || SERENA_DEFAULTS.clinicAddress;
+    var cPark = String(payload.parkingInfo !== undefined ? payload.parkingInfo : (base.parkingInfo || "")).trim();
+    var rName = String(payload.receptionName !== undefined ? payload.receptionName : (base.receptionName || "Recepção")).trim() || "Recepção";
+    var rWa = String(payload.receptionWhatsapp !== undefined ? payload.receptionWhatsapp : (base.receptionWhatsapp || "")).trim();
+    var crcOn = payload.crcEnabled !== undefined ? Boolean(payload.crcEnabled) : (base.crcEnabled !== false);
+    var zGrp = String(payload.zeldaGroupTarget !== undefined ? payload.zeldaGroupTarget : (base.zeldaGroupTarget || "")).trim();
+    var zCaretaker = String(payload.zeldaCaretakerPhone !== undefined ? payload.zeldaCaretakerPhone : (base.zeldaCaretakerPhone || "")).trim();
+    var zQuorum = Math.max(1, Math.min(20, Number(payload.zeldaApprovalQuorum !== undefined ? payload.zeldaApprovalQuorum : (base.zeldaApprovalQuorum || 3)) || 3));
+    var keepUnread = payload.serenaKeepUnreadForHuman !== undefined ? Boolean(payload.serenaKeepUnreadForHuman) : (base.serenaKeepUnreadForHuman !== false);
+
+    var normalized = Object.assign({}, base, payload, {
+      assistantName: aName,
+      clinicName: cName,
+      clinicAddress: cAddr,
+      address: cAddr,
+      parkingInfo: cPark,
+      receptionName: rName,
+      receptionWhatsapp: rWa,
+      crcEnabled: crcOn,
+      zeldaGroupTarget: zGrp,
+      grupoZelda: zGrp,
+      zeldaGroup: zGrp,
+      zeldaCaretakerPhone: zCaretaker,
+      whatsappZelador: zCaretaker,
+      zeldaApprovalQuorum: zQuorum,
+      serenaKeepUnreadForHuman: keepUnread,
+      timezone: "America/Sao_Paulo",
+      updatedAt: new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })
+    });
+
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized)); } catch (e) {}
+    writeNodeFsSettings(normalized);
+
+    try {
+      if (typeof window.require === "function") {
+        var electron = window.require("electron");
+        if (electron && electron.ipcRenderer) {
+          await electron.ipcRenderer.invoke("serena:save-clinic-settings", normalized);
+        }
+      }
+    } catch (e) {}
+
+    try {
+      await fetch("http://127.0.0.1:17890/sync-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: normalized })
+      });
+    } catch (e) {}
+
+    syncAllScreenStates();
+    window.dispatchEvent(new CustomEvent("serena-clinic-settings-updated", { detail: normalized }));
+    return normalized;
+  }
+
+  window.getSerenaClinicSettings = getCachedSettings;
+  window.saveSerenaClinicSettings = persistSettingsEverywhere;
+
+  function isDarkBackground(el) {
+    var node = el;
+    while (node && node !== document.documentElement) {
+      var bg = window.getComputedStyle(node).backgroundColor;
+      var m = bg && bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+      if (m) {
+        var alpha = m[4] !== undefined ? parseFloat(m[4]) : 1;
+        if (alpha > 0.15) {
+          var lum = (0.299 * Number(m[1]) + 0.587 * Number(m[2]) + 0.114 * Number(m[3])) / 255;
+          return lum < 0.45;
+        }
+      }
+      node = node.parentElement;
+    }
+    return false;
+  }
+
+  // ESCUDO ESTRUTURAL DE NAVEGAÇÃO: NUNCA permite ocultar menus, sidebars, abas, botões ou links!
+  function isNavigationOrStructuralNode(el) {
+    if (!el || el.nodeType !== 1) return true;
+    if (el === document.body || el === document.documentElement) return true;
+    var tag = (el.tagName || "").toUpperCase();
+    if (
+      tag === "NAV" || tag === "ASIDE" || tag === "HEADER" || tag === "FOOTER" ||
+      tag === "MAIN" || tag === "UL" || tag === "OL" || tag === "MENU" ||
+      tag === "BUTTON" || tag === "A" || tag === "SELECT" || tag === "INPUT" ||
+      tag === "TEXTAREA" || tag === "FORM"
+    ) {
+      return true;
+    }
+    var navSelector =
+      "nav, aside, header, [role='navigation'], [role='tablist'], [role='menubar'], [role='menu'], [role='tab'], " +
+      "[class*='sidebar'], [class*='side-bar'], [class*='sidenav'], [class*='navbar'], [class*='topbar'], " +
+      "[class*='menu'], [class*='nav-'], [class*='-nav'], [class*='tab-bar'], [class*='tabs'], [class*='drawer'], " +
+      "[id*='sidebar'], [id*='sidenav'], [id*='menu'], [id*='navbar'], [id*='tabs'], [data-serena-managed='1']";
+    if (el.closest(navSelector)) return true;
+    if (
+      el.querySelector(
+        "nav, aside, header, [role='navigation'], [role='tablist'], [role='tab'], " +
+        "[class*='sidebar'], [class*='menu'], button, a, input, select, textarea, table, form"
+      )
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  // Localiza qualquer container de navegação nativo (mesmo se usar divs Tailwind sem tag <nav>/<aside>)
+  function findPrimaryNavigationContainer() {
+    var explicitContainers = document.querySelectorAll(
+      "aside, nav, [role='navigation'], [role='tablist'], [class*='sidebar'], [class*='side-bar'], [class*='sidenav'], [id*='sidebar'], [class*='navbar'], [class*='tab-bar'], [class*='tabs']"
+    );
+    for (var i = 0; i < explicitContainers.length; i++) {
+      var c = explicitContainers[i];
+      if (c.id === "serena-guaranteed-top-menu" || c.closest("[data-serena-managed='1']")) continue;
+      var items = c.querySelectorAll("button, a, [role='tab'], li");
+      if (items.length >= 2) return c;
+    }
+
+    // Fallback para sidebars/menus feitos apenas com <div> + <button>/<a> (ex: Tailwind flex-col w-64)
+    var flexDivs = document.querySelectorAll("body > div > div, #root > div > div, #app > div > div, header div");
+    for (var j = 0; j < flexDivs.length; j++) {
+      var d = flexDivs[j];
+      if (d.closest("main, form, table, [data-serena-managed='1']")) continue;
+      var btns = d.querySelectorAll("button, a");
+      if (btns.length < 2 || btns.length > 25) continue;
+      var matchedNavWords = 0;
+      for (var b = 0; b < btns.length; b++) {
+        var bTxt = (btns[b].textContent || "").replace(/\s+/g, " ").trim();
+        if (bTxt.length > 0 && bTxt.length <= 40 && /(dashboard|serena|painel|whatsapp|conex|qr\s*code|disparo|campanha|massa|contato|lead|agenda|zelda|configura|ajuste|settings|mensagen|conversa)/i.test(bTxt)) {
+          matchedNavWords++;
+        }
+      }
+      if (matchedNavWords >= 2) return d;
+    }
+    return null;
+  }
+
+  // Restaura imediatamente qualquer sidebar/menu que tenha sido ocultado acidentalmente
+  function restoreHiddenNavigationContainers() {
+    var prevHidden = document.querySelectorAll("[data-serena-zelda-hidden-on-serena='1']");
+    for (var i = 0; i < prevHidden.length; i++) {
+      var el = prevHidden[i];
+      if (isNavigationOrStructuralNode(el)) {
+        el.removeAttribute("data-serena-zelda-hidden-on-serena");
+        el.style.display = "";
+      }
+    }
+
+    var navContainers = document.querySelectorAll(
+      "aside, nav, header, [role='navigation'], [role='tablist'], [class*='sidebar'], [class*='side-bar'], [class*='sidenav'], [id*='sidebar'], [id*='menu'], [class*='navbar']"
+    );
+    for (var k = 0; k < navContainers.length; k++) {
+      var nc = navContainers[k];
+      if (nc.closest("[role='dialog'], .modal")) continue;
+      if (nc.hasAttribute("data-serena-zelda-hidden-on-serena")) {
+        nc.removeAttribute("data-serena-zelda-hidden-on-serena");
+      }
+      if (nc.hasAttribute("data-serena-split-hidden")) {
+        nc.removeAttribute("data-serena-split-hidden");
+      }
+      if (nc.style && nc.style.display === "none") {
+        nc.style.display = "";
+      }
+      if (nc.style && nc.style.visibility === "hidden") {
+        nc.style.visibility = "";
+      }
+      var innerBtns = nc.querySelectorAll("button, a, [role='tab'], li");
+      for (var b = 0; b < innerBtns.length; b++) {
+        if (innerBtns[b].hasAttribute("data-serena-zelda-hidden-on-serena")) {
+          innerBtns[b].removeAttribute("data-serena-zelda-hidden-on-serena");
+        }
+        if (innerBtns[b].style && innerBtns[b].style.display === "none") {
+          innerBtns[b].style.display = "";
+        }
+      }
+    }
+
+    var primaryNav = findPrimaryNavigationContainer();
+    if (primaryNav) {
+      var anc = primaryNav;
+      while (anc && anc !== document.body && anc !== document.documentElement) {
+        if (anc.hasAttribute("data-serena-zelda-hidden-on-serena")) {
+          anc.removeAttribute("data-serena-zelda-hidden-on-serena");
+        }
+        if (anc.style && anc.style.display === "none") {
+          anc.style.display = "";
+        }
+        anc = anc.parentElement;
+      }
+    }
+  }
+
+  function isNavOrTabElement(el) {
+    if (!el) return null;
+    if (el.closest("#serena-guaranteed-top-menu")) return null;
+    if (
+      el.closest("[data-serena-managed='1']") &&
+      !el.closest("#serena-nav-config-zelda-btn, #serena-nav-config-geral-btn, #serena-nav-zelda-cond-btn")
+    ) {
+      return null;
+    }
+    var candidate = el.closest("button, a, [role='tab'], li, [class*='tab'], [class*='nav'], [class*='menu']");
+    if (!candidate) return null;
+    if (candidate.querySelector("input, textarea, select")) return null;
+    // Se clicou num botão dentro de card de conteúdo (ex: Salvar, Hoje, Ontem, + Incluir), ignora!
+    var inNav = candidate.closest(
+      "nav, aside, header, [role='navigation'], [role='tablist'], [class*='sidebar'], [class*='side-bar'], [class*='sidenav'], [class*='navbar'], [class*='menu'], [class*='tabs'], [class*='tab-bar'], [id*='sidebar'], [id*='menu']"
+    );
+    var pNav = findPrimaryNavigationContainer();
+    if (!inNav && (!pNav || !pNav.contains(candidate))) return null;
+    var label = (candidate.textContent || "").replace(/\s+/g, " ").trim();
+    if (!label || label.length > 48) return null;
+    return { el: candidate, label: label };
+  }
+
+  function isActiveTabElement(tabEl) {
+    if (!tabEl) return false;
+    if (tabEl.id === "serena-nav-config-zelda-btn") return lastClickedSection === "config_zelda";
+    if (tabEl.id === "serena-nav-config-geral-btn") return lastClickedSection === "config_geral";
+    if (tabEl.id === "serena-nav-zelda-cond-btn") return lastClickedSection === "zelda_condominio";
+    if (tabEl.getAttribute("aria-selected") === "true") return true;
+    if (tabEl.getAttribute("data-state") === "active") return true;
+    var cls = String(tabEl.className || "");
+    return /\b(active|selected|current|ativo|ativa)\b/i.test(cls);
+  }
+
+  function findVisibleMainPanel(excludeEl) {
+    var pNav = findPrimaryNavigationContainer();
+    var selectors = [
+      "[role='tabpanel']:not([hidden])",
+      ".tab-pane.active",
+      ".tab-content > .active",
+      "main",
+      "[class*='main-content']",
+      "[class*='page-content']",
+      "#content",
+      ".content"
+    ];
+    for (var i = 0; i < selectors.length; i++) {
+      var list = document.querySelectorAll(selectors[i]);
+      for (var k = 0; k < list.length; k++) {
+        var p = list[k];
+        if (excludeEl && excludeEl.contains(p)) continue;
+        if (pNav && (p === pNav || pNav.contains(p))) continue;
+        if (p.offsetHeight > 60 && p.offsetWidth > 200) return p;
+      }
+    }
+    // Fallback para apps sem tag <main> (ex: #root > div > div da direita)
+    var rootCandidates = document.querySelectorAll("#root > div > div, #app > div > div, body > div > div, body > div");
+    for (var r = 0; r < rootCandidates.length; r++) {
+      var rc = rootCandidates[r];
+      if (rc.id === "serena-guaranteed-top-menu") continue;
+      if (pNav && (rc === pNav || pNav.contains(rc) || rc.contains(pNav))) continue;
+      if (rc.offsetHeight > 120 && rc.offsetWidth > 260) return rc;
+    }
+    return document.body;
+  }
+
+  // Descobre abas/painéis estáticos nativos (ex: #tab-dashboard, #tab-disparo, [data-tab-content], .tab-pane)
+  function discoverNativeDomPanels() {
+    var list = [];
+    var seen = {};
+    var panels = document.querySelectorAll("[id^='tab-'], [id^='aba-'], [data-tab-content], [data-page], .tab-pane");
+    for (var i = 0; i < panels.length; i++) {
+      var p = panels[i];
+      if (isNavigationOrStructuralNode(p) && p.tagName !== "SECTION" && p.tagName !== "DIV") continue;
+      if (p.closest("nav, aside, header, [data-serena-managed='1']")) continue;
+      var rawKey =
+        p.getAttribute("data-tab-content") ||
+        p.getAttribute("data-page") ||
+        (p.id || "").replace(/^(tab-|aba-)/i, "");
+      if (!rawKey) continue;
+      var normKey = rawKey.toLowerCase();
+      if (seen[normKey]) continue;
+      seen[normKey] = true;
+      var heading = p.querySelector("h1, h2, h3");
+      var niceLabel = heading ? (heading.textContent || "").replace(/\s+/g, " ").trim() : "";
+      if (!niceLabel || niceLabel.length > 28) {
+        niceLabel = rawKey.charAt(0).toUpperCase() + rawKey.slice(1).replace(/[-_]+/g, " ");
+      }
+      list.push({ key: normKey, label: niceLabel, panel: p });
+    }
+    return list;
+  }
+
+  function activateNativeDomPanelByKey(targetKey) {
+    var panels = discoverNativeDomPanels();
+    for (var i = 0; i < panels.length; i++) {
+      var item = panels[i];
+      if (item.key === targetKey) {
+        item.panel.hidden = false;
+        item.panel.style.display = "";
+        item.panel.classList.add("active");
+      } else {
+        item.panel.classList.remove("active");
+        if (item.panel.style && item.panel.id) {
+          item.panel.style.display = "none";
+        }
+      }
+    }
+  }
+
+  var REQUIRED_10_MENU_ITEMS = [
+    { id: "serena_dashboard", label: "Serena", rx: /^serena$|\bdashboard\b/i, nativeKeys: ["serena", "dashboard"] },
+    { id: "agendamentos", label: "Agendamentos", rx: /\bagendamento/i, nativeKeys: ["agendamentos", "agenda"] },
+    { id: "disparos_massa", label: "Disparos em Massa", rx: /disparos?\s+em\s+massa|campanha/i, nativeKeys: ["disparos-em-massa", "disparos_em_massa", "disparos", "massa", "campanhas"] },
+    { id: "contatos", label: "Contatos", rx: /\bcontatos?\b/i, nativeKeys: ["contatos", "contacts"] },
+    { id: "mensagens", label: "Mensagens", rx: /\bmensagen/i, nativeKeys: ["mensagens", "messages", "templates"] },
+    { id: "associacoes", label: "Associações", rx: /\bassociac|\bassociaç/i, nativeKeys: ["associacoes", "associations"] },
+    { id: "disparar", label: "Disparar", rx: /^disparar$|\benvio\s+ativo\b/i, nativeKeys: ["disparar", "disparo", "enviar"] },
+    { id: "status", label: "Status", rx: /^status$|\bconex[aã]o\b/i, nativeKeys: ["status", "conexao"] },
+    { id: "zelda_condominio", label: "Zelda", rx: /\bzelda\b|\bcondom[ií]nio\b/i, nativeKeys: ["zelda", "condominio"] },
+    { id: "config_geral", label: "Configurações", rx: /\b(configura[cç][oõ]es|configura[cç][aã]o|config\s*geral|settings|ajustes)\b/i, nativeKeys: ["configuracoes", "config", "settings"] }
+  ];
+
+  function mapLabelToCanonicalSection(lbl) {
+    var clean = String(lbl || "").replace(/\s+/g, " ").trim();
+    if (!clean) return "other";
+    if (/config\s*zelda/i.test(clean)) return "config_zelda";
+    if (/\b(configura[cç][oõ]es|configura[cç][aã]o|config\s*geral|settings|ajustes|par[aâ]metros)\b/i.test(clean)) {
+      return activeSettingsScreen === "zelda" ? "config_zelda" : "config_geral";
+    }
+    if (/\bagendamento/i.test(clean)) return "agendamentos";
+    if (/disparos?\s+em\s+massa|campanha/i.test(clean)) return "disparos_massa";
+    if (/\bcontatos?\b/i.test(clean)) return "contatos";
+    if (/\bmensagen/i.test(clean)) return "mensagens";
+    if (/\bassociac|\bassociaç/i.test(clean)) return "associacoes";
+    if (/^disparar$/i.test(clean)) return "disparar";
+    if (/^status$/i.test(clean)) return "status";
+    if (/\b(zelda|condom[ií]nio|conselho)\b/i.test(clean)) return "zelda_condominio";
+    if (/\b(dashboard|serena|painel|vis[aã]o\s*geral|indicadores|in[ií]cio|home)\b/i.test(clean)) return "serena_dashboard";
+    return "other";
+  }
+
+  function tryActivateAnyNativePanel(keys) {
+    if (!Array.isArray(keys)) return false;
+    var panels = discoverNativeDomPanels();
+    for (var k = 0; k < keys.length; k++) {
+      var target = String(keys[k]).toLowerCase();
+      for (var i = 0; i < panels.length; i++) {
+        if (panels[i].key === target || panels[i].key.indexOf(target) >= 0) {
+          activateNativeDomPanelByKey(panels[i].key);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // Detecta com precisão qual das 10 telas está ativa no mm-sender
+  function detectActiveSection() {
+    if (lastClickedSection) {
+      return lastClickedSection;
+    }
+
+    var pNav = findPrimaryNavigationContainer();
+    var navItems = pNav
+      ? pNav.querySelectorAll("button, a, [role='tab'], li")
+      : document.querySelectorAll("nav button, nav a, aside button, aside a, [role='tab'], header button, header a, [class*='sidebar'] button, [class*='sidebar'] a");
+
+    for (var i = 0; i < navItems.length; i++) {
+      var it = navItems[i];
+      if (!isActiveTabElement(it)) continue;
+      var txt = (it.textContent || "").replace(/\s+/g, " ").trim();
+      if (!txt || txt.length > 48) continue;
+      return mapLabelToCanonicalSection(txt);
+    }
+
+    var mainHeadings = document.querySelectorAll("main h1, main h2, [role='tabpanel']:not([hidden]) h1, [role='tabpanel']:not([hidden]) h2, h1, h2");
+    for (var j = 0; j < mainHeadings.length; j++) {
+      var h = mainHeadings[j];
+      if (isNavigationOrStructuralNode(h)) continue;
+      if (h.offsetHeight <= 0) continue;
+      var hTxt = (h.textContent || "").replace(/\s+/g, " ").trim();
+      var mapped = mapLabelToCanonicalSection(hTxt);
+      if (mapped !== "other") return mapped;
+    }
+    return "serena_dashboard";
+  }
+
+  function cloneMenuButtonWithLabel(templateEl, newId, newLabel, onClickFn) {
+    var clone = templateEl.cloneNode(true);
+    clone.id = newId;
+    clone.removeAttribute("aria-selected");
+    clone.setAttribute("data-serena-managed", "1");
+    if (clone.className && typeof clone.className === "string") {
+      clone.className = clone.className.replace(/\b(active|selected|current)\b/gi, "").trim();
+    }
+    var updated = false;
+    for (var i = 0; i < clone.childNodes.length; i++) {
+      var n = clone.childNodes[i];
+      if (n.nodeType === 3 && (n.nodeValue || "").trim().length > 1) {
+        n.nodeValue = " " + newLabel + " ";
+        updated = true;
+        break;
+      } else if (n.nodeType === 1 && n.children.length === 0 && (n.tagName || "").toUpperCase() !== "SVG" && (n.tagName || "").toUpperCase() !== "I" && (n.textContent || "").trim().length > 1) {
+        n.textContent = newLabel;
+        updated = true;
+        break;
+      }
+    }
+    if (!updated) {
+      clone.textContent = newLabel;
+    }
+    clone.addEventListener("click", onClickFn);
+    return clone;
+  }
+
+  // Garante TODOS OS 10 ITENS EXATOS no menu nativo OU monta a barra superior completa com os 10 itens!
+  function ensureAllNavigationMenuOptions() {
+    restoreHiddenNavigationContainers();
+    var pNav = findPrimaryNavigationContainer();
+
+    if (pNav && pNav.offsetHeight > 20 && pNav.offsetWidth > 60) {
+      var fallbackBar = document.getElementById("serena-guaranteed-top-menu");
+      if (fallbackBar) fallbackBar.remove();
+
+      var navCandidates = pNav.querySelectorAll("button, a, [role='tab']");
+      var firstTemplateBtn = null;
+      var matchedMap = {};
+
+      for (var i = 0; i < navCandidates.length; i++) {
+        var el = navCandidates[i];
+        var txt = (el.textContent || "").replace(/\s+/g, " ").trim();
+        if (!txt || txt.length > 44) continue;
+        if (!firstTemplateBtn && !el.getAttribute("data-serena-managed")) {
+          firstTemplateBtn = el;
+        }
+        for (var r = 0; r < REQUIRED_10_MENU_ITEMS.length; r++) {
+          var reqItem = REQUIRED_10_MENU_ITEMS[r];
+          if (!matchedMap[reqItem.id] && reqItem.rx.test(txt)) {
+            if (reqItem.id === "zelda_condominio" && /config/i.test(txt)) continue;
+            matchedMap[reqItem.id] = el;
+          }
+        }
+      }
+
+      if (!firstTemplateBtn) return;
+
+      var parentList = firstTemplateBtn.parentElement;
+      if (!parentList) return;
+
+      var curSec = detectActiveSection();
+
+      // Garante que qualquer um dos 10 itens ausente no menu nativo seja inserido mantendo a ordem!
+      for (var m = 0; m < REQUIRED_10_MENU_ITEMS.length; m++) {
+        (function (spec) {
+          var existingEl = matchedMap[spec.id] || document.getElementById("serena-nav-req-" + spec.id);
+          if (!existingEl) {
+            var newBtn = cloneMenuButtonWithLabel(
+              firstTemplateBtn,
+              "serena-nav-req-" + spec.id,
+              spec.label,
+              function (ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                if (spec.id === "config_geral") activeSettingsScreen = "geral";
+                lastClickedSection = spec.id;
+                tryActivateAnyNativePanel(spec.nativeKeys);
+                scheduleCheck();
+              }
+            );
+            parentList.appendChild(newBtn);
+            existingEl = newBtn;
+          } else if (!existingEl.getAttribute("data-serena-nav-bound")) {
+            existingEl.setAttribute("data-serena-nav-bound", "1");
+            existingEl.addEventListener("click", function () {
+              if (spec.id === "config_geral") activeSettingsScreen = "geral";
+              lastClickedSection = spec.id;
+              scheduleCheck();
+            });
+          }
+
+          if (existingEl.id === "serena-nav-req-" + spec.id) {
+            var isAct =
+              spec.id === "config_geral"
+                ? curSec === "config_geral" || curSec === "config_zelda"
+                : curSec === spec.id;
+            existingEl.style.fontWeight = isAct ? "700" : "";
+            existingEl.style.opacity = isAct ? "1" : "0.88";
+          }
+        })(REQUIRED_10_MENU_ITEMS[m]);
+      }
+      return;
+    }
+
+    // CONTINGÊNCIA TOTAL: Monta barra de navegação com os 10 itens exatos do mm-sender!
+    mountGuaranteedFullMenuBar();
+  }
+
+  function mountGuaranteedFullMenuBar() {
+    if (!document.body) return;
+    var curSec = detectActiveSection();
+    var bar = document.getElementById("serena-guaranteed-top-menu");
+
+    if (!bar) {
+      bar = document.createElement("nav");
+      bar.id = "serena-guaranteed-top-menu";
+      bar.setAttribute("aria-label", "Menu principal mm-sender");
+      bar.setAttribute("data-serena-managed", "1");
+      bar.style.cssText =
+        "position:sticky;top:0;z-index:9998;width:100%;box-sizing:border-box;" +
+        "background:#0f172a;color:#f8fafc;border-bottom:1px solid #1e293b;" +
+        "padding:8px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;" +
+        "font-family:system-ui,-apple-system,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.18);";
+      document.body.insertBefore(bar, document.body.firstChild);
+    }
+
+    var sig = curSec + "::" + activeSettingsScreen;
+    if (bar.getAttribute("data-menu-sig") === sig) return;
+    bar.setAttribute("data-menu-sig", sig);
+
+    var buttonsHtml = "";
+    for (var m = 0; m < REQUIRED_10_MENU_ITEMS.length; m++) {
+      var opt = REQUIRED_10_MENU_ITEMS[m];
+      var isAct =
+        opt.id === "config_geral"
+          ? curSec === "config_geral" || curSec === "config_zelda"
+          : curSec === opt.id;
+      buttonsHtml +=
+        '<button type="button" data-serena-topnav="' + opt.id + '" ' +
+        'style="height:32px;padding:0 11px;border-radius:6px;border:1px solid ' + (isAct ? "#3b82f6" : "rgba(148,163,184,0.28)") + ";" +
+        "background:" + (isAct ? "#2563eb" : "rgba(30,41,59,0.85)") + ";color:#ffffff;" +
+        "font-size:12px;font-weight:" + (isAct ? "700" : "500") + ';cursor:pointer;white-space:nowrap;">' +
+        opt.label +
+        "</button>";
+    }
+
+    bar.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;">' +
+        '<strong style="font-size:13px;letter-spacing:-0.01em;color:#ffffff;white-space:nowrap;">mm-sender</strong>' +
+      "</div>" +
+      '<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">' +
+        buttonsHtml +
+      "</div>";
+
+    var navBtns = bar.querySelectorAll("[data-serena-topnav]");
+    for (var b = 0; b < navBtns.length; b++) {
+      navBtns[b].addEventListener("click", function () {
+        var targetId = this.getAttribute("data-serena-topnav") || "serena_dashboard";
+        if (targetId === "config_geral") activeSettingsScreen = "geral";
+        lastClickedSection = targetId;
+        for (var r = 0; r < REQUIRED_10_MENU_ITEMS.length; r++) {
+          if (REQUIRED_10_MENU_ITEMS[r].id === targetId) {
+            tryActivateAnyNativePanel(REQUIRED_10_MENU_ITEMS[r].nativeKeys);
+            break;
+          }
+        }
+        scheduleCheck();
+      });
+    }
+  }
+
+  // REGRA OBRIGATÓRIA: Na tela da Serena / Dashboard NÃO deve aparecer nenhum status da Zelda,
+  // MAS NUNCA pode ocultar menus, sidebars, cabeçalhos, botões ou links de navegação!
+  function syncZeldaStatusVisibilityAndLabels(activeSec) {
+    var onZeldaScreen = activeSec === "zelda_condominio" || activeSec === "config_zelda";
+
+    if (!onZeldaScreen) {
+      var candidates = document.querySelectorAll("span, p, small, strong, b, div");
+      for (var i = 0; i < candidates.length; i++) {
+        var el = candidates[i];
+        if (isNavigationOrStructuralNode(el)) continue;
+        if (el.children.length > 2) continue;
+        if (el.offsetHeight > 95) continue;
+
+        var txt = (el.textContent || "").replace(/\s+/g, " ").trim();
+        if (!txt || txt.length > 135) continue;
+
+        var isZeldaStatusBadge =
+          (/(grupo\s+de\s+whatsup|whatsup\s+off\s*line)/i.test(txt)) ||
+          (/^ativa\s*\([^)]*(conselho|zelda|teste)[^)]*\)$/i.test(txt)) ||
+          (/\bzelda\b/i.test(txt) && /(desconectad[ao]|conectad[ao]|whatsapp\s+off|whatsup\s+off|status\s+da\s+zelda|grupo\s+configurado)/i.test(txt));
+
+        if (isZeldaStatusBadge) {
+          var targetHide = el;
+          if (
+            el.parentElement &&
+            !isNavigationOrStructuralNode(el.parentElement) &&
+            el.parentElement.children.length <= 2 &&
+            el.parentElement.offsetHeight <= 95 &&
+            (el.parentElement.textContent || "").trim().length <= 135
+          ) {
+            targetHide = el.parentElement;
+          }
+          if (targetHide.getAttribute("data-serena-zelda-hidden-on-serena") !== "1") {
+            targetHide.setAttribute("data-serena-zelda-hidden-on-serena", "1");
+            targetHide.style.display = "none";
+          }
+        }
+      }
+      return;
+    }
+
+    // Nas telas da Zelda: restaura elementos da Zelda e corrige o texto de status real do WhatsApp
+    var hiddenList = document.querySelectorAll("[data-serena-zelda-hidden-on-serena='1']");
+    for (var r = 0; r < hiddenList.length; r++) {
+      hiddenList[r].removeAttribute("data-serena-zelda-hidden-on-serena");
+      hiddenList[r].style.display = "";
+    }
+
+    var cfg = getCachedSettings();
+    var grp = cfg.zeldaGroupTarget || "Não configurado";
+    var connText = liveWaConn.connected ? "Conectada (WhatsApp Online)" : "Desconectada (WhatsApp Offline)";
+    var nodes = document.querySelectorAll("span, div, p, strong, b, small, td, label");
+    for (var n = 0; n < nodes.length; n++) {
+      var node = nodes[n];
+      if (node.children.length > 0) continue;
+      if (isNavigationOrStructuralNode(node)) continue;
+      var t = (node.textContent || "").trim();
+      if (!t || t.length > 120) continue;
+      if (
+        /^ativa\s*\([^)]+\)$/i.test(t) ||
+        /desconectad[ao].*(grupo|whatsup|whatsapp).*configurado/i.test(t) ||
+        /(whatsup|whatsapp)\s*off\s*line.*configurado/i.test(t) ||
+        node.getAttribute("data-zelda-status-fixed") === "1"
+      ) {
+        node.setAttribute("data-zelda-status-fixed", "1");
+        setTextIfChanged(node, connText + " · Grupo Configurado: " + grp);
+        setColorIfChanged(node, liveWaConn.connected ? "#059669" : "#dc2626");
+        node.style.fontWeight = "600";
+      }
+    }
+  }
+
+  // CONTADORES DO DASHBOARD DA SERENA POR DATA + "TODOS OS DIAS (TOTAL GERAL)" (Zero Flicker)
+  function findSerenaDashboardContainer(activeSec) {
+    if (activeSec !== "serena_dashboard") return null;
+    var explicit = ["#tab-dashboard", "#dashboard", "#tab-serena", "#serena-dashboard", "[data-tab-content='dashboard']", "[data-page='dashboard']"];
+    for (var i = 0; i < explicit.length; i++) {
+      var f = document.querySelector(explicit[i]);
+      if (f && f.offsetHeight > 50 && !f.closest("nav, aside, [role='tablist']")) return f;
+    }
+    return findVisibleMainPanel(null);
+  }
+
+  function applyMetricsToNativeDashboardDom(panelEl, metrics) {
+    if (!panelEl || !metrics) return;
+    // Sincroniza eventual <input type="date"> nativo sem deixar polling sobrescrever a escolha
+    var nativeDateInputs = panelEl.querySelectorAll("input[type='date']");
+    for (var d = 0; d < nativeDateInputs.length; d++) {
+      var di = nativeDateInputs[d];
+      if (di.id === "serena-dash-date-input") continue;
+      if (di.getAttribute("data-serena-bound-date") !== "1") {
+        di.setAttribute("data-serena-bound-date", "1");
+        di.addEventListener("change", function () {
+          setDashboardFilterValue(this.value ? this.value : "all");
+        });
+      }
+      var desiredVal = serenaDashFilter === "all" ? "" : serenaDashFilter;
+      if (document.activeElement !== di && di.value !== desiredVal) {
+        di.value = desiredVal;
+      }
+    }
+
+    // Atualiza contadores numéricos dos cards KPI nativos de forma idempotente (sem piscar!)
+    var cards = panelEl.querySelectorAll("[class*='card'], [class*='stat'], [class*='kpi'], [class*='metric'], section > div > div");
+    for (var i = 0; i < cards.length; i++) {
+      var card = cards[i];
+      if (card.closest("[data-serena-managed='1']")) continue;
+      if (card.children.length < 1 || card.children.length > 6) continue;
+      var cardTxt = (card.textContent || "").replace(/\s+/g, " ").trim();
+      if (!cardTxt || cardTxt.length > 160) continue;
+
+      var numEl = null;
+      var subCandidates = card.querySelectorAll("h1, h2, h3, strong, b, span, div, p");
+      for (var k = 0; k < subCandidates.length; k++) {
+        var sc = subCandidates[k];
+        if (sc.children.length > 0) continue;
+        var st = (sc.textContent || "").trim();
+        if (/^\d+(?:[.,]\d+)?%?$/.test(st)) {
+          numEl = sc;
+          break;
+        }
+      }
+      if (!numEl) continue;
+
+      var low = cardTxt.toLowerCase();
+      var isPct = (numEl.textContent || "").trim().endsWith("%");
+      if (/convers[aã]o|taxa/i.test(low) || isPct) {
+        setTextIfChanged(numEl, String(metrics.taxaConversao) + "%");
+      } else if (/agendad|avalia[cç][oõ]es\s+confirm|consultas\s+marcadas/i.test(low)) {
+        setTextIfChanged(numEl, String(metrics.agendados));
+      } else if (/transbordo|humano|atendente/i.test(low)) {
+        setTextIfChanged(numEl, String(metrics.transbordoHumano));
+      } else if (/n[aã]o\s+lid/i.test(low)) {
+        setTextIfChanged(numEl, String(metrics.naoLidas));
+      } else if (/respondid|mensagens\s+enviadas|respostas\s+serena/i.test(low)) {
+        setTextIfChanged(numEl, String(metrics.mensagensRespondidas));
+      } else if (/entrada\s+de\s+leads|novos\s+leads|total\s+de\s+leads|\bleads\b|atendimentos\s+ativos/i.test(low)) {
+        setTextIfChanged(numEl, String(metrics.leadsEntrada));
+      }
+    }
+
+    // Atualiza também o resumo na barra de período da Serena
+    var summaryEl = document.getElementById("serena-dash-period-summary");
+    if (summaryEl) {
+      var labelPeriod = serenaDashFilter === "all" ? "Todos os dias (Total Geral)" : formatIsoPtBr(serenaDashFilter);
+      var fObj = metrics.funil || {};
+      var recCnt = typeof fObj.leads_recebidos === "number" ? fObj.leads_recebidos : metrics.leadsEntrada;
+      var agCnt = typeof fObj.leads_agendados === "number" ? fObj.leads_agendados : metrics.agendados;
+      setTextIfChanged(
+        summaryEl,
+        labelPeriod + " · Leads: " + recCnt + " · Agendados: " + agCnt + " · Conversão: " + (metrics.taxaConversao || 0) + "%"
+      );
+    }
+
+    renderCorporateSerenaDashboardCard(panelEl, metrics);
+  }
+
+  function renderCorporateSerenaDashboardCard(panelEl, metrics) {
+    if (!panelEl || !metrics) return;
+    var corpCard = document.getElementById("serena-corporate-dashboard-card");
+    var barEl = document.getElementById("serena-dashboard-date-bar");
+    var dark = isDarkBackground(panelEl);
+    var borderCol = dark ? "rgba(148,163,184,0.25)" : "#e2e8f0";
+    var bgCol = dark ? "rgba(15,23,42,0.9)" : "#ffffff";
+    var subBg = dark ? "rgba(30,41,59,0.55)" : "#f8fafc";
+    var txtCol = dark ? "#f8fafc" : "#0f172a";
+    var subCol = dark ? "#94a3b8" : "#64748b";
+
+    if (!corpCard || !panelEl.contains(corpCard)) {
+      if (corpCard) corpCard.remove();
+      corpCard = document.createElement("div");
+      corpCard.id = "serena-corporate-dashboard-card";
+      corpCard.setAttribute("data-serena-managed", "1");
+      corpCard.style.cssText =
+        "margin:0 0 18px 0;padding:18px 20px;border-radius:12px;border:1px solid " + borderCol +
+        ";background:" + bgCol + ";color:" + txtCol + ";font-family:system-ui,-apple-system,sans-serif;";
+      if (barEl && barEl.nextSibling) {
+        panelEl.insertBefore(corpCard, barEl.nextSibling);
+      } else if (barEl) {
+        panelEl.appendChild(corpCard);
+      } else {
+        panelEl.insertBefore(corpCard, panelEl.firstChild);
+      }
+    }
+
+    var funil = metrics.funil || {
+      leads_recebidos: metrics.leadsEntrada || 0,
+      leads_respondidos: metrics.mensagensRespondidas || 0,
+      leads_qualificados: 0,
+      ofertas_agendamento: 0,
+      leads_agendados: metrics.agendados || 0,
+      leads_followup: 0,
+      leads_humano: metrics.transbordoHumano || 0,
+      leads_perdidos: 0,
+      atendimentos_concluidos: 0
+    };
+    var operacao = metrics.operacao || {
+      reagendamentos: 0,
+      cancelamentos: 0,
+      comparecimentos: 0,
+      tratamentos_iniciados: 0
+    };
+    var perdas = metrics.perdas || {};
+    var interesses = metrics.interesses || {};
+    var origens = metrics.origens || {};
+    var alerts = Array.isArray(metrics.receptionAlerts) ? metrics.receptionAlerts : [];
+    var cfg = getCachedSettings();
+
+    var sig = JSON.stringify({
+      df: serenaDashFilter,
+      f: funil,
+      o: operacao,
+      p: perdas,
+      i: interesses,
+      or: origens,
+      crc: metrics.crcAtivos || 0,
+      tx: metrics.taxaConversao || 0,
+      al: alerts.length ? alerts[0].id : "",
+      cn: cfg.clinicName,
+      rw: cfg.receptionWhatsapp || ""
+    });
+    if (corpCard.getAttribute("data-corp-sig") === sig) return;
+    corpCard.setAttribute("data-corp-sig", sig);
+
+    function kpiBox(label, val, accent) {
+      return (
+        '<div style="padding:10px 12px;border-radius:9px;border:1px solid ' + borderCol + ';background:' + subBg + ';">' +
+          '<div style="font-size:11px;font-weight:600;color:' + subCol + ';line-height:1.25;">' + label + '</div>' +
+          '<div style="margin-top:4px;font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;color:' + (accent || txtCol) + ';">' + Number(val || 0) + '</div>' +
+        '</div>'
+      );
+    }
+
+    function distRows(entries, barColor) {
+      var maxV = 1;
+      for (var m = 0; m < entries.length; m++) {
+        if (Number(entries[m][1] || 0) > maxV) maxV = Number(entries[m][1] || 0);
+      }
+      var out = "";
+      for (var r = 0; r < entries.length; r++) {
+        var lbl = entries[r][0];
+        var cnt = Number(entries[r][1] || 0);
+        var pct = cnt > 0 ? Math.max(8, Math.round((cnt / maxV) * 100)) : 0;
+        out +=
+          '<div style="margin-bottom:6px;">' +
+            '<div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;">' +
+              '<span style="color:' + txtCol + ';">' + lbl + '</span>' +
+              '<strong style="font-variant-numeric:tabular-nums;color:' + txtCol + ';">' + cnt + '</strong>' +
+            '</div>' +
+            '<div style="height:5px;border-radius:4px;background:' + (dark ? "#1e293b" : "#e2e8f0") + ';overflow:hidden;">' +
+              '<div style="height:100%;width:' + pct + '%;background:' + barColor + ';"></div>' +
+            '</div>' +
+          '</div>';
+      }
+      return out;
+    }
+
+    var alertsHtml = "";
+    if (alerts.length > 0) {
+      var aItems = [];
+      for (var a = 0; a < Math.min(alerts.length, 4); a++) {
+        var al = alerts[a];
+        if (!al) continue;
+        aItems.push(
+          '<div style="padding:8px 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + subBg + ';font-size:11px;white-space:pre-line;">' +
+            escZeldaHtml(al.formattedMessage || "") +
+          '</div>'
+        );
+      }
+      alertsHtml =
+        '<div style="margin-top:14px;padding-top:12px;border-top:1px solid ' + borderCol + ';">' +
+          '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:' + subCol + ';margin-bottom:8px;">🔔 Últimos Alertas para Recepção ' + (cfg.receptionWhatsapp ? '(' + escZeldaHtml(cfg.receptionWhatsapp) + ')' : '') + '</div>' +
+          '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">' + aItems.join("") + '</div>' +
+        '</div>';
+    }
+
+    corpCard.innerHTML =
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;padding-bottom:12px;margin-bottom:14px;border-bottom:1px solid ' + borderCol + ';">' +
+        '<div>' +
+          '<div style="font-size:15px;font-weight:700;">Dashboard Gerencial Corporativo · Serena CRM, CRC, LGPD &amp; Funil</div>' +
+          '<div style="font-size:12px;color:' + subCol + ';margin-top:2px;">' + escZeldaHtml(cfg.clinicName) + ' · Zero valores informados · Follow-up apenas autorizado · Respeito integral ao paciente</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;font-variant-numeric:tabular-nums;">' +
+          '<div><span style="display:block;font-size:11px;color:' + subCol + ';">Taxa Conversão</span><strong style="font-size:15px;color:#059669;">' + (metrics.taxaConversao || 0) + '%</strong></div>' +
+          '<div><span style="display:block;font-size:11px;color:' + subCol + ';">CRC em Atendimento</span><strong style="font-size:15px;color:#d97706;">' + (metrics.crcAtivos || 0) + '</strong></div>' +
+          '<div><span style="display:block;font-size:11px;color:' + subCol + ';">Assumido pela CRC</span><strong style="font-size:15px;color:#d97706;">' + (metrics.crcAssumidos || 0) + '</strong></div>' +
+        '</div>' +
+      '</div>' +
+
+      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:' + subCol + ';margin-bottom:8px;">Funil de Conversão (9 Etapas)</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:14px;">' +
+        kpiBox("1. Leads Recebidos", funil.leads_recebidos) +
+        kpiBox("2. Respondidos", funil.leads_respondidos) +
+        kpiBox("3. Qualificados", funil.leads_qualificados, "#2563eb") +
+        kpiBox("4. Ofertas Horário", funil.ofertas_agendamento, "#2563eb") +
+        kpiBox("5. Agendados", funil.leads_agendados, "#059669") +
+        kpiBox("6. Follow-up Aut.", funil.leads_followup, "#0284c7") +
+        kpiBox("7. Atend. Humano", funil.leads_humano, "#d97706") +
+        kpiBox("8. Leads Perdidos", funil.leads_perdidos, "#dc2626") +
+        kpiBox("9. Concluídos", funil.atendimentos_concluidos, "#059669") +
+      '</div>' +
+
+      '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:' + subCol + ';margin-bottom:8px;">Indicadores de Operação Clínica</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-bottom:16px;">' +
+        kpiBox("Reagendamentos", operacao.reagendamentos, "#2563eb") +
+        kpiBox("Cancelamentos", operacao.cancelamentos, "#dc2626") +
+        kpiBox("Comparecimentos", operacao.comparecimentos, "#059669") +
+        kpiBox("Tratamentos Iniciados", operacao.tratamentos_iniciados, "#059669") +
+      '</div>' +
+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;">' +
+        '<div style="padding:12px;border-radius:10px;border:1px solid ' + borderCol + ';background:' + subBg + ';">' +
+          '<div style="font-size:12px;font-weight:700;margin-bottom:8px;">Interesses Identificados</div>' +
+          distRows([
+            ["Implante", interesses.implante],
+            ["Ortodontia", interesses.ortodontia],
+            ["Estética", interesses.estetica],
+            ["Limpeza", interesses.limpeza],
+            ["Urgência", interesses.urgencia],
+            ["Avaliação Geral", interesses.avaliacao],
+            ["Outros", interesses.outros]
+          ], "#0d9488") +
+        '</div>' +
+        '<div style="padding:12px;border-radius:10px;border:1px solid ' + borderCol + ';background:' + subBg + ';">' +
+          '<div style="font-size:12px;font-weight:700;margin-bottom:8px;">Origens dos Leads</div>' +
+          distRows([
+            ["Instagram", origens.instagram],
+            ["Google", origens.google],
+            ["Indicação", origens.indicacao],
+            ["Facebook", origens.facebook],
+            ["WhatsApp", origens.whatsapp],
+            ["Site", origens.site],
+            ["Outros", origens.outros]
+          ], "#2563eb") +
+        '</div>' +
+        '<div style="padding:12px;border-radius:10px;border:1px solid ' + borderCol + ';background:' + subBg + ';">' +
+          '<div style="font-size:12px;font-weight:700;margin-bottom:8px;">Motivos de Perda &amp; SLA</div>' +
+          distRows([
+            ["Sem resposta (SLA 72h)", perdas.sem_resposta],
+            ["Abandono (SLA 24h)", perdas.abandono_conversa],
+            ["Sem interesse", perdas.sem_interesse],
+            ["Pesquisando / Comparando", Number(perdas.pesquisando || 0) + Number(perdas.comparando || 0)],
+            ["Preço", perdas.preco],
+            ["Horário incompatível", perdas.horario_incompativel],
+            ["Concorrente", perdas.preferiu_concorrente],
+            ["Opt-Out LGPD", perdas.optout],
+            ["Outros", perdas.outros]
+          ], "#e11d48") +
+        '</div>' +
+      '</div>' +
+      alertsHtml;
+  }
+
+  function setDashboardFilterValue(nextVal) {
+    serenaDashFilter = nextVal && String(nextVal).trim() ? String(nextVal).trim() : "all";
+    try { localStorage.setItem(DASH_DATE_KEY, serenaDashFilter); } catch (e) {}
+    syncDashboardDateBarControls();
+    refreshDashboardMetricsAsync(serenaDashFilter).then(function (m) {
+      var p = findSerenaDashboardContainer(detectActiveSection());
+      if (p && m) applyMetricsToNativeDashboardDom(p, m);
+    });
+  }
+
+  function syncDashboardDateBarControls() {
+    var btnAll = document.getElementById("serena-dash-btn-all");
+    var btnToday = document.getElementById("serena-dash-btn-today");
+    var btnYest = document.getElementById("serena-dash-btn-yesterday");
+    var dateIn = document.getElementById("serena-dash-date-input");
+    var todayIso = getBrtIsoDate(0);
+    var yestIso = getBrtIsoDate(-1);
+
+    function stylePeriodBtn(btn, active) {
+      if (!btn) return;
+      btn.style.background = active ? "#0f172a" : "transparent";
+      btn.style.color = active ? "#ffffff" : "inherit";
+      btn.style.fontWeight = active ? "700" : "500";
+    }
+    stylePeriodBtn(btnAll, serenaDashFilter === "all");
+    stylePeriodBtn(btnToday, serenaDashFilter === todayIso);
+    stylePeriodBtn(btnYest, serenaDashFilter === yestIso);
+    if (dateIn && document.activeElement !== dateIn) {
+      var v = serenaDashFilter === "all" ? "" : serenaDashFilter;
+      if (dateIn.value !== v) dateIn.value = v;
+    }
+  }
+
+  function mountOrSyncSerenaDashboardDateBar(activeSec) {
+    var existing = document.getElementById("serena-dashboard-date-bar");
+    var existingCorp = document.getElementById("serena-corporate-dashboard-card");
+    var panel = findSerenaDashboardContainer(activeSec);
+    if (!panel) {
+      if (existing) existing.remove();
+      if (existingCorp) existingCorp.remove();
+      return;
+    }
+    if (!existing || !panel.contains(existing)) {
+      if (existing) existing.remove();
+      var dark = isDarkBackground(panel);
+      var borderCol = dark ? "rgba(148,163,184,0.25)" : "#cbd5e1";
+      var bgCol = dark ? "rgba(15,23,42,0.85)" : "#ffffff";
+      var txtCol = dark ? "#f8fafc" : "#0f172a";
+      var subCol = dark ? "#94a3b8" : "#64748b";
+
+      var bar = document.createElement("div");
+      bar.id = "serena-dashboard-date-bar";
+      bar.setAttribute("data-serena-managed", "1");
+      bar.style.cssText = "margin:0 0 14px 0;padding:10px 14px;border-radius:10px;border:1px solid " + borderCol + ";background:" + bgCol + ";color:" + txtCol + ";display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-family:system-ui,-apple-system,sans-serif;";
+
+      bar.innerHTML =
+        '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' +
+          '<span style="font-size:12px;font-weight:700;margin-right:4px;">Período do Dashboard Serena:</span>' +
+          '<button id="serena-dash-btn-all" type="button" style="height:30px;padding:0 10px;border-radius:6px;border:1px solid ' + borderCol + ';font-size:12px;cursor:pointer;">Todos os dias (Total Geral)</button>' +
+          '<button id="serena-dash-btn-today" type="button" style="height:30px;padding:0 10px;border-radius:6px;border:1px solid ' + borderCol + ';font-size:12px;cursor:pointer;">Hoje</button>' +
+          '<button id="serena-dash-btn-yesterday" type="button" style="height:30px;padding:0 10px;border-radius:6px;border:1px solid ' + borderCol + ';font-size:12px;cursor:pointer;">Ontem</button>' +
+          '<input id="serena-dash-date-input" type="date" style="height:30px;padding:0 8px;border-radius:6px;border:1px solid ' + borderCol + ';background:transparent;color:' + txtCol + ';font-size:12px;" />' +
+        '</div>' +
+        '<div id="serena-dash-period-summary" style="font-size:12px;font-weight:600;color:' + subCol + ';font-variant-numeric:tabular-nums;"></div>';
+
+      panel.insertBefore(bar, panel.firstChild);
+
+      document.getElementById("serena-dash-btn-all").addEventListener("click", function () {
+        setDashboardFilterValue("all");
+      });
+      document.getElementById("serena-dash-btn-today").addEventListener("click", function () {
+        setDashboardFilterValue(getBrtIsoDate(0));
+      });
+      document.getElementById("serena-dash-btn-yesterday").addEventListener("click", function () {
+        setDashboardFilterValue(getBrtIsoDate(-1));
+      });
+      document.getElementById("serena-dash-date-input").addEventListener("change", function () {
+        setDashboardFilterValue(this.value ? this.value : "all");
+      });
+    }
+
+    syncDashboardDateBarControls();
+    if (cachedDashMetrics) {
+      applyMetricsToNativeDashboardDom(panel, cachedDashMetrics);
+    } else {
+      refreshDashboardMetricsAsync(serenaDashFilter).then(function (m) {
+        if (m) applyMetricsToNativeDashboardDom(panel, m);
+      });
+    }
+  }
+
+  function restoreVirtualZeldaIsolation() {
+    var hiddenEls = document.querySelectorAll("[data-serena-zelda-view-hidden]");
+    for (var i = 0; i < hiddenEls.length; i++) {
+      hiddenEls[i].removeAttribute("data-serena-zelda-view-hidden");
+      hiddenEls[i].style.display = "";
+    }
+  }
+
+  function applyVirtualZeldaIsolation(container, mode) {
+    if (!container || mode !== "virtual-main") return;
+    var pNav = findPrimaryNavigationContainer();
+    var children = container.children;
+    for (var i = 0; i < children.length; i++) {
+      var ch = children[i];
+      if (ch.getAttribute("data-serena-managed") === "1") continue;
+      if (pNav && (ch === pNav || ch.contains(pNav))) continue;
+      var tag = (ch.tagName || "").toUpperCase();
+      if (tag === "NAV" || tag === "ASIDE" || tag === "HEADER") continue;
+      if (ch.matches && ch.matches("[role='navigation'], [role='tablist'], [class*='sidebar'], [class*='navbar'], [class*='tabs'], [class*='menu']")) continue;
+      ch.setAttribute("data-serena-zelda-view-hidden", "1");
+      ch.style.display = "none";
+    }
+  }
+
+  // ZELDA (CONDOMÍNIO) CARD — Montado EXCLUSIVAMENTE na aba Zelda (Condomínio), nunca na Serena!
+  function escZeldaHtml(val) {
+    return String(val == null ? "" : val)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+  var escHtml = escZeldaHtml;
+
+  function findZeldaTabContainer(activeSec) {
+    if (activeSec !== "zelda_condominio") return null;
+    var explicit = ["#tab-zelda", "#zelda", "#aba-zelda", "#zelda-condominio", "[data-tab-content='zelda']", "[data-page='zelda']"];
+    for (var i = 0; i < explicit.length; i++) {
+      var f = document.querySelector(explicit[i]);
+      if (f && !f.closest("nav, aside, [role='tablist']")) {
+        if (f.hidden) f.hidden = false;
+        if (f.style && f.style.display === "none") f.style.display = "";
+        return { container: f, mode: "static-panel" };
+      }
+    }
+    var mainP = findVisibleMainPanel(null);
+    return mainP ? { container: mainP, mode: "virtual-main" } : null;
+  }
+
+  function updateZeldaCondominioHeaderBadges() {
+    var connEl = document.getElementById("zelda-cond-conn-val");
+    var grpEl = document.getElementById("zelda-cond-grp-val");
+    var cfgConnEl = document.getElementById("serena-zelda-cfg-conn-val");
+    var cfgGrpEl = document.getElementById("serena-zelda-cfg-grp-val");
+    var cfg = getCachedSettings();
+    var connStr = liveWaConn.connected ? "Conectada (WhatsApp Online)" : "Desconectada (WhatsApp Offline)";
+    var col = liveWaConn.connected ? "#059669" : "#dc2626";
+    if (connEl) {
+      setTextIfChanged(connEl, connStr);
+      setColorIfChanged(connEl, col);
+    }
+    if (grpEl) setTextIfChanged(grpEl, cfg.zeldaGroupTarget || "Não configurado");
+    if (cfgConnEl) {
+      setTextIfChanged(cfgConnEl, connStr);
+      setColorIfChanged(cfgConnEl, col);
+    }
+    if (cfgGrpEl) setTextIfChanged(cfgGrpEl, cfg.zeldaGroupTarget || "Não configurado");
+  }
+
+  function mountOrSyncZeldaCard(activeSec) {
+    if (document.querySelector("[data-zelda-native-condominio='true']")) return;
+    var target = findZeldaTabContainer(activeSec);
+    var existing = document.getElementById("zelda-condominio-manager-card");
+    if (!target) {
+      if (existing) existing.remove();
+      restoreVirtualZeldaIsolation();
+      return;
+    }
+    applyVirtualZeldaIsolation(target.container, target.mode);
+    if (existing && target.container.contains(existing)) {
+      updateZeldaCondominioHeaderBadges();
+      return;
+    }
+    if (existing) existing.remove();
+
+    var dark = isDarkBackground(target.container);
+    var cfg = getCachedSettings();
+    var borderCol = dark ? "rgba(148,163,184,0.25)" : "#cbd5e1";
+    var bgCol = dark ? "rgba(15,23,42,0.92)" : "#ffffff";
+    var subBg = dark ? "rgba(30,41,59,0.55)" : "#f8fafc";
+    var editBg = dark ? "rgba(30,58,138,0.22)" : "#eff6ff";
+    var editBorder = dark ? "rgba(96,165,250,0.45)" : "#93c5fd";
+    var txtCol = dark ? "#f8fafc" : "#0f172a";
+    var subCol = dark ? "#94a3b8" : "#64748b";
+    var inBg = dark ? "#0f172a" : "#ffffff";
+
+    var card = document.createElement("div");
+    card.id = "zelda-condominio-manager-card";
+    card.setAttribute("data-serena-managed", "1");
+    card.setAttribute("data-mount-mode", target.mode);
+    card.style.cssText = "margin:14px 0 18px 0;padding:18px 20px;border-radius:12px;border:1px solid " + borderCol + ";background:" + bgCol + ";color:" + txtCol + ";font-family:system-ui,-apple-system,sans-serif;";
+
+    var inputStyle = "width:100%;height:36px;padding:0 10px;border-radius:8px;border:1px solid " + borderCol + ";background:" + inBg + ";color:" + txtCol + ";font-size:12px;box-sizing:border-box;";
+    var labelStyle = "display:block;font-size:11px;font-weight:600;color:" + subCol + ";margin-bottom:4px;";
+
+    card.innerHTML =
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid ' + borderCol + ';">' +
+        '<div>' +
+          '<div style="font-size:16px;font-weight:700;">Zelda (Condomínio) · Incluir & Editar Iniciativas</div>' +
+          '<div style="font-size:12px;color:' + subCol + ';margin-top:2px;">Cadastre, edite todos os campos, acompanhe votações do Conselho e sincronize com o grupo no WhatsApp.</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:12px;">' +
+          '<div><span style="color:' + subCol + ';display:block;">Status da Conexão WhatsApp</span><strong id="zelda-cond-conn-val" style="font-size:13px;"></strong></div>' +
+          '<div><span style="color:' + subCol + ';display:block;">Grupo Configurado</span><strong id="zelda-cond-grp-val" style="font-size:13px;"></strong></div>' +
+          '<button id="zc-focus-new-btn" type="button" style="height:34px;padding:0 12px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">+ Nova Iniciativa</button>' +
+        '</div>' +
+      '</div>' +
+
+      '<div id="zc-create-box" style="margin-top:14px;padding:14px;border-radius:10px;border:1px solid ' + borderCol + ';background:' + subBg + ';">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">' +
+          '<strong style="font-size:13px;">Incluir Nova Iniciativa do Condomínio</strong>' +
+          '<span style="font-size:11px;color:' + subCol + ';">Apenas o nome é obrigatório · Demais campos podem ficar em branco</span>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;">' +
+          '<div style="grid-column:1 / -1;"><label style="' + labelStyle + '">Nome / Descrição da Iniciativa *</label><input id="zc-title-in" placeholder="Ex: Orçamento de impermeabilização do terraço" style="' + inputStyle + '" /></div>' +
+          '<div><label style="' + labelStyle + '">Área / Bloco / Setor</label><input id="zc-area-in" placeholder="Ex: Portaria / Área comum (opcional)" style="' + inputStyle + '" /></div>' +
+          '<div><label style="' + labelStyle + '">Responsável</label><input id="zc-resp-in" placeholder="Ex: Síndico / Zelador (opcional)" style="' + inputStyle + '" /></div>' +
+          '<div><label style="' + labelStyle + '">Data / Prazo</label><input id="zc-due-in" placeholder="Ex: 25/11/2026 (opcional)" style="' + inputStyle + '" /></div>' +
+          '<div><label style="' + labelStyle + '">Prioridade</label>' +
+            '<select id="zc-prio-in" style="' + inputStyle + '">' +
+              '<option value="alta">Alta</option>' +
+              '<option value="media" selected>Média</option>' +
+              '<option value="baixa">Baixa</option>' +
+            '</select>' +
+          '</div>' +
+          '<div><label style="' + labelStyle + '">Etapa Inicial</label>' +
+            '<select id="zc-status-in" style="' + inputStyle + '">' +
+              '<option value="pendente" selected>Pendente</option>' +
+              '<option value="em_votacao">Em votação no Conselho</option>' +
+              '<option value="aprovada">Aprovada</option>' +
+              '<option value="em_andamento">Em andamento</option>' +
+              '<option value="concluida">Concluída</option>' +
+              '<option value="reprovada">Reprovada</option>' +
+            '</select>' +
+          '</div>' +
+          '<div style="grid-column:1 / -1;"><label style="' + labelStyle + '">Observação</label><input id="zc-notes-in" placeholder="Ex: Aguardando 3 orçamentos comparativos (opcional)" style="' + inputStyle + '" /></div>' +
+        '</div>' +
+        '<div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:10px;">' +
+          '<button id="zc-clear-btn" type="button" style="height:34px;padding:0 12px;border-radius:8px;border:1px solid ' + borderCol + ';background:transparent;color:' + subCol + ';font-size:12px;font-weight:600;cursor:pointer;">Limpar campos</button>' +
+          '<button id="zc-add-btn" type="button" style="height:36px;padding:0 16px;border-radius:8px;border:none;background:#0f172a;color:#fff;font-size:12px;font-weight:700;cursor:pointer;">+ Incluir Iniciativa</button>' +
+        '</div>' +
+      '</div>' +
+
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:16px;">' +
+        '<div id="zc-filter-tabs" style="display:flex;gap:6px;flex-wrap:wrap;"></div>' +
+        '<div style="min-width:220px;flex:1;max-width:300px;"><input id="zc-search-in" placeholder="Buscar por #nº, título, área, responsável..." style="' + inputStyle + 'height:34px;" /></div>' +
+      '</div>' +
+
+      '<div id="zc-list-wrap" style="margin-top:12px;"></div>' +
+
+      '<div id="zc-live-inbox-box" style="margin-top:14px;padding:12px 14px;border-radius:10px;border:1px solid ' + borderCol + ';background:' + subBg + ';">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">' +
+          '<div>' +
+            '<strong style="font-size:13px;">Mensagens Recebidas no Grupo WhatsApp &amp; Respostas da Zelda</strong>' +
+            '<div style="font-size:11px;color:' + subCol + ';margin-top:2px;">Exibe em tempo real tudo que chega nos grupos do WhatsApp conectado (sem exigir cadastro do seu WhatsApp pessoal ou do conectado).</div>' +
+          '</div>' +
+          '<button id="zc-refresh-inbox-btn" type="button" style="height:30px;padding:0 10px;border-radius:7px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:11px;font-weight:600;cursor:pointer;">Atualizar Recebidas</button>' +
+        '</div>' +
+        '<div id="zc-live-groups-chips" style="display:none;margin-bottom:8px;"></div>' +
+        '<div id="zc-live-inbox-list" style="display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto;"></div>' +
+      '</div>' +
+
+      '<details style="margin-top:14px;padding:10px 12px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + subBg + ';">' +
+        '<summary style="cursor:pointer;font-size:12px;font-weight:600;color:' + txtCol + ';">Prévia da Lista Formatada para o Grupo WhatsApp</summary>' +
+        '<pre id="zc-wa-preview" style="margin:10px 0 0 0;padding:10px;border-radius:6px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:11px;white-space:pre-wrap;font-family:ui-monospace,Consolas,monospace;max-height:220px;overflow:auto;"></pre>' +
+      '</details>' +
+
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid ' + borderCol + ';">' +
+        '<span id="zc-feedback" style="font-size:12px;font-weight:600;color:#059669;"></span>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+          '<button id="zc-copy-btn" type="button" style="height:34px;padding:0 12px;border-radius:8px;border:1px solid ' + borderCol + ';background:transparent;color:' + txtCol + ';font-size:12px;font-weight:600;cursor:pointer;">Copiar Lista p/ WhatsApp</button>' +
+          '<button id="zc-send-grp-btn" type="button" style="height:34px;padding:0 14px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">Enviar Lista Atualizada no Grupo</button>' +
+        '</div>' +
+      '</div>';
+
+    target.container.insertBefore(card, target.container.firstChild);
+    updateZeldaCondominioHeaderBadges();
+
+    var listWrap = document.getElementById("zc-list-wrap");
+    var filterTabsWrap = document.getElementById("zc-filter-tabs");
+    var searchIn = document.getElementById("zc-search-in");
+    var waPreview = document.getElementById("zc-wa-preview");
+    var fbEl = document.getElementById("zc-feedback");
+
+    var currentFilter = "abertas";
+    var searchQuery = "";
+    var editingTaskId = null;
+
+    function showFb(msg, isErr) {
+      if (!fbEl) return;
+      fbEl.style.color = isErr ? "#dc2626" : "#059669";
+      fbEl.textContent = msg;
+      setTimeout(function () { if (fbEl && fbEl.textContent === msg) fbEl.textContent = ""; }, 4500);
+    }
+
+    function updatePreview(items) {
+      if (!waPreview) return;
+      var c = getCachedSettings();
+      waPreview.textContent = formatWhatsAppList(items, c.zeldaGroupTarget || "Grupo Configurado");
+    }
+
+    function renderFilterTabs(items) {
+      if (!filterTabsWrap) return;
+      var openCnt = items.filter(function (a) { return a.status !== "concluida" && a.status !== "reprovada"; }).length;
+      var voteCnt = items.filter(function (a) { return a.status === "em_votacao"; }).length;
+      var closedCnt = items.filter(function (a) { return a.status === "concluida" || a.status === "reprovada"; }).length;
+      var tabs = [
+        { key: "abertas", label: "Em Aberto (" + openCnt + ")" },
+        { key: "votacao", label: "Em Votação (" + voteCnt + ")" },
+        { key: "todas", label: "Todas (" + items.length + ")" },
+        { key: "concluidas", label: "Concluídas (" + closedCnt + ")" }
+      ];
+      var h = "";
+      for (var i = 0; i < tabs.length; i++) {
+        var tb = tabs[i];
+        var active = currentFilter === tb.key;
+        h += '<button type="button" data-zc-ftab="' + tb.key + '" style="height:32px;padding:0 11px;border-radius:8px;border:1px solid ' + (active ? "#0f172a" : borderCol) + ';background:' + (active ? "#0f172a" : "transparent") + ';color:' + (active ? "#ffffff" : txtCol) + ';font-size:12px;font-weight:600;cursor:pointer;">' + tb.label + '</button>';
+      }
+      filterTabsWrap.innerHTML = h;
+      var btns = filterTabsWrap.querySelectorAll("[data-zc-ftab]");
+      for (var b = 0; b < btns.length; b++) {
+        btns[b].addEventListener("click", function () {
+          currentFilter = this.getAttribute("data-zc-ftab") || "abertas";
+          renderTasks();
+        });
+      }
+    }
+
+    function renderTasks() {
+      if (!listWrap) return;
+      var items = getZeldaActivities();
+      var liveCfg = getCachedSettings();
+      var quorum = Math.max(1, Number(liveCfg.zeldaApprovalQuorum) || 3);
+      renderFilterTabs(items);
+      updatePreview(items);
+
+      var filtered = items.filter(function (a) {
+        if (currentFilter === "abertas" && (a.status === "concluida" || a.status === "reprovada")) return false;
+        if (currentFilter === "votacao" && a.status !== "em_votacao") return false;
+        if (currentFilter === "concluidas" && a.status !== "concluida" && a.status !== "reprovada") return false;
+        if (searchQuery) {
+          var q = searchQuery.toLowerCase();
+          var hay = ("#" + (a.code || "") + " " + (a.title || "") + " " + (a.area || "") + " " + (a.responsible || "") + " " + (a.dueDate || "") + " " + (a.notes || "")).toLowerCase();
+          if (hay.indexOf(q) < 0) return false;
+        }
+        return true;
+      });
+
+      if (!filtered.length) {
+        listWrap.innerHTML =
+          '<div style="padding:16px;border-radius:8px;border:1px dashed ' + borderCol + ';font-size:12px;color:' + subCol + ';text-align:center;">' +
+            (items.length === 0
+              ? 'Nenhuma iniciativa cadastrada. Preencha o formulário acima ou envie <strong>Zelda Inserir Iniciativa</strong> no grupo ' + escZeldaHtml(liveCfg.zeldaGroupTarget || "configurado") + '.'
+              : 'Nenhuma iniciativa encontrada neste filtro.') +
+          '</div>';
+        return;
+      }
+
+      var stMap = {
+        em_votacao: "Em votação",
+        aprovada: "Aprovada",
+        pendente: "Pendente",
+        em_andamento: "Em andamento",
+        concluida: "Concluída",
+        reprovada: "Reprovada"
+      };
+      var prioMap = { alta: "Alta", media: "Média", baixa: "Baixa" };
+
+      var html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+      for (var i = 0; i < filtered.length; i++) {
+        var t = filtered[i];
+        var isEditing = editingTaskId === t.id;
+        var stLabel = stMap[t.status] || "Pendente";
+        var prioLabel = prioMap[t.priority] || "Média";
+        var stCol = t.status === "concluida" || t.status === "aprovada" ? "#059669" : (t.status === "em_andamento" || t.status === "em_votacao" ? "#d97706" : "#dc2626");
+        var prioCol = t.priority === "alta" ? "#dc2626" : (t.priority === "baixa" ? "#2563eb" : "#d97706");
+
+        var metaParts = [];
+        if (t.area) metaParts.push("Local: " + escZeldaHtml(t.area));
+        if (t.responsible) metaParts.push("Resp.: " + escZeldaHtml(t.responsible));
+        if (t.dueDate) metaParts.push("Prazo: " + escZeldaHtml(t.dueDate));
+        if (Array.isArray(t.votes) && (t.votes.length > 0 || t.status === "em_votacao")) {
+          var favCnt = t.votes.filter(function (v) { return v.choice === "favor"; }).length;
+          var conCnt = t.votes.filter(function (v) { return v.choice === "contra"; }).length;
+          metaParts.push("Votos: " + favCnt + "/" + quorum + " favor · " + conCnt + " contra");
+        }
+        if (t.updatedAt) metaParts.push("Atualizado: " + escZeldaHtml(t.updatedAt));
+
+        html += '<div style="padding:10px 12px;border-radius:10px;border:1px solid ' + (isEditing ? editBorder : borderCol) + ';background:' + (isEditing ? editBg : "transparent") + ';font-size:12px;">';
+        html +=
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">' +
+            '<div style="flex:1;min-width:220px;">' +
+              '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' +
+                '<strong style="font-size:12px;">#' + escZeldaHtml(t.code) + '</strong>' +
+                '<span style="font-size:11px;font-weight:700;color:' + prioCol + ';">[' + prioLabel + ']</span>' +
+                '<span style="font-size:11px;font-weight:700;color:' + stCol + ';">• ' + stLabel + '</span>' +
+              '</div>' +
+              '<div style="margin-top:4px;font-size:13px;' + (t.status === "concluida" ? "text-decoration:line-through;opacity:0.65;" : "font-weight:600;") + '">' + escZeldaHtml(t.title) + '</div>' +
+              (metaParts.length ? '<div style="margin-top:4px;font-size:11px;color:' + subCol + ';">' + metaParts.join(" · ") + '</div>' : '') +
+              (t.notes ? '<div style="margin-top:4px;font-size:11px;color:' + txtCol + ';opacity:0.9;">Obs.: ' + escZeldaHtml(t.notes) + '</div>' : '') +
+            '</div>' +
+            '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' +
+              '<button type="button" data-zc-edit="' + escZeldaHtml(t.id) + '" style="height:30px;padding:0 10px;border-radius:7px;border:1px solid ' + editBorder + ';background:' + (isEditing ? "#2563eb" : "transparent") + ';color:' + (isEditing ? "#ffffff" : "#2563eb") + ';cursor:pointer;font-size:11px;font-weight:700;">' + (isEditing ? "Editando" : "Editar") + '</button>' +
+              '<select data-zc-status="' + escZeldaHtml(t.id) + '" style="height:30px;padding:0 6px;border-radius:7px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:11px;font-weight:600;cursor:pointer;">' +
+                '<option value="em_votacao"' + (t.status === "em_votacao" ? " selected" : "") + '>Em votação</option>' +
+                '<option value="aprovada"' + (t.status === "aprovada" ? " selected" : "") + '>Aprovada</option>' +
+                '<option value="pendente"' + (t.status === "pendente" ? " selected" : "") + '>Pendente</option>' +
+                '<option value="em_andamento"' + (t.status === "em_andamento" ? " selected" : "") + '>Em andamento</option>' +
+                '<option value="concluida"' + (t.status === "concluida" ? " selected" : "") + '>Concluída</option>' +
+                '<option value="reprovada"' + (t.status === "reprovada" ? " selected" : "") + '>Reprovada</option>' +
+              '</select>' +
+              '<button type="button" data-zc-del="' + escZeldaHtml(t.id) + '" style="height:30px;padding:0 9px;border-radius:7px;border:1px solid ' + borderCol + ';background:transparent;color:#dc2626;cursor:pointer;font-size:11px;font-weight:600;">Excluir</button>' +
+            '</div>' +
+          '</div>';
+
+        if (isEditing) {
+          html +=
+            '<div style="margin-top:12px;padding-top:12px;border-top:1px solid ' + editBorder + ';">' +
+              '<div style="font-size:12px;font-weight:700;margin-bottom:8px;color:#2563eb;">Editar Iniciativa #' + escZeldaHtml(t.code) + '</div>' +
+              '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px;">' +
+                '<div style="grid-column:1 / -1;"><label style="' + labelStyle + '">Nome / Descrição *</label><input id="zc-ed-title" value="' + escZeldaHtml(t.title) + '" style="' + inputStyle + '" /></div>' +
+                '<div><label style="' + labelStyle + '">Área / Bloco / Setor</label><input id="zc-ed-area" value="' + escZeldaHtml(t.area || "") + '" placeholder="Em branco se não aplicável" style="' + inputStyle + '" /></div>' +
+                '<div><label style="' + labelStyle + '">Responsável</label><input id="zc-ed-resp" value="' + escZeldaHtml(t.responsible || "") + '" placeholder="Em branco se não aplicável" style="' + inputStyle + '" /></div>' +
+                '<div><label style="' + labelStyle + '">Data / Prazo</label><input id="zc-ed-due" value="' + escZeldaHtml(t.dueDate || "") + '" placeholder="Ex: 25/11/2026" style="' + inputStyle + '" /></div>' +
+                '<div><label style="' + labelStyle + '">Prioridade</label>' +
+                  '<select id="zc-ed-prio" style="' + inputStyle + '">' +
+                    '<option value="alta"' + (t.priority === "alta" ? " selected" : "") + '>Alta</option>' +
+                    '<option value="media"' + ((!t.priority || t.priority === "media") ? " selected" : "") + '>Média</option>' +
+                    '<option value="baixa"' + (t.priority === "baixa" ? " selected" : "") + '>Baixa</option>' +
+                  '</select>' +
+                '</div>' +
+                '<div><label style="' + labelStyle + '">Status / Etapa</label>' +
+                  '<select id="zc-ed-status" style="' + inputStyle + '">' +
+                    '<option value="em_votacao"' + (t.status === "em_votacao" ? " selected" : "") + '>Em votação no Conselho</option>' +
+                    '<option value="aprovada"' + (t.status === "aprovada" ? " selected" : "") + '>Aprovada</option>' +
+                    '<option value="pendente"' + (t.status === "pendente" ? " selected" : "") + '>Pendente</option>' +
+                    '<option value="em_andamento"' + (t.status === "em_andamento" ? " selected" : "") + '>Em andamento</option>' +
+                    '<option value="concluida"' + (t.status === "concluida" ? " selected" : "") + '>Concluída</option>' +
+                    '<option value="reprovada"' + (t.status === "reprovada" ? " selected" : "") + '>Reprovada</option>' +
+                  '</select>' +
+                '</div>' +
+                '<div style="grid-column:1 / -1;"><label style="' + labelStyle + '">Observação</label><input id="zc-ed-notes" value="' + escZeldaHtml(t.notes || "") + '" placeholder="Observações, parecer ou histórico" style="' + inputStyle + '" /></div>' +
+              '</div>' +
+              '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">' +
+                '<button type="button" id="zc-ed-cancel" style="height:32px;padding:0 12px;border-radius:8px;border:1px solid ' + borderCol + ';background:transparent;color:' + txtCol + ';font-size:12px;font-weight:600;cursor:pointer;">Cancelar</button>' +
+                '<button type="button" id="zc-ed-save" data-zc-save-id="' + escZeldaHtml(t.id) + '" style="height:32px;padding:0 14px;border-radius:8px;border:none;background:#2563eb;color:#ffffff;font-size:12px;font-weight:700;cursor:pointer;">Salvar Alterações</button>' +
+              '</div>' +
+            '</div>';
+        }
+
+        html += '</div>';
+      }
+      html += '</div>';
+      listWrap.innerHTML = html;
+
+      var editBtns = listWrap.querySelectorAll("[data-zc-edit]");
+      for (var eIdx = 0; eIdx < editBtns.length; eIdx++) {
+        editBtns[eIdx].addEventListener("click", function () {
+          var id = this.getAttribute("data-zc-edit");
+          editingTaskId = editingTaskId === id ? null : id;
+          renderTasks();
+          if (editingTaskId) {
+            var edIn = document.getElementById("zc-ed-title");
+            if (edIn) edIn.focus();
+          }
+        });
+      }
+
+      var cancelBtn = document.getElementById("zc-ed-cancel");
+      if (cancelBtn) {
+        cancelBtn.addEventListener("click", function () {
+          editingTaskId = null;
+          renderTasks();
+        });
+      }
+
+      var saveBtn = document.getElementById("zc-ed-save");
+      if (saveBtn) {
+        saveBtn.addEventListener("click", function () {
+          var targetId = this.getAttribute("data-zc-save-id");
+          var edTitleEl = document.getElementById("zc-ed-title");
+          var edAreaEl = document.getElementById("zc-ed-area");
+          var edRespEl = document.getElementById("zc-ed-resp");
+          var edDueEl = document.getElementById("zc-ed-due");
+          var edPrioEl = document.getElementById("zc-ed-prio");
+          var edStatusEl = document.getElementById("zc-ed-status");
+          var edNotesEl = document.getElementById("zc-ed-notes");
+
+          var checked = validateZeldaUiForm({
+            title: edTitleEl ? edTitleEl.value : "",
+            area: edAreaEl ? edAreaEl.value : "",
+            responsible: edRespEl ? edRespEl.value : "",
+            dueDate: edDueEl ? edDueEl.value : "",
+            notes: edNotesEl ? edNotesEl.value : ""
+          });
+          if (!checked.ok) {
+            showFb(checked.error, true);
+            return;
+          }
+          var nextStatus = edStatusEl ? edStatusEl.value : "pendente";
+          var nowStr = new Date().toLocaleString("pt-BR");
+          var nowEpoch = Date.now();
+          var savedCode = "";
+
+          var updatedList = getZeldaActivities().map(function (x) {
+            if (x.id !== targetId) return x;
+            savedCode = x.code;
+            return Object.assign({}, x, {
+              title: checked.title,
+              area: checked.area,
+              responsible: checked.responsible,
+              dueDate: checked.dueDate,
+              priority: edPrioEl ? edPrioEl.value : "media",
+              status: nextStatus,
+              notes: checked.notes,
+              updatedAt: nowStr,
+              updatedAtEpochMs: nowEpoch,
+              updatedBy: "Painel mm-sender"
+            });
+          });
+
+          if ((nextStatus === "concluida" || nextStatus === "reprovada") && currentFilter === "abertas") {
+            currentFilter = "concluidas";
+          } else if (nextStatus !== "concluida" && nextStatus !== "reprovada" && currentFilter === "concluidas") {
+            currentFilter = "abertas";
+          } else if (nextStatus !== "em_votacao" && currentFilter === "votacao") {
+            currentFilter = "abertas";
+          }
+
+          editingTaskId = null;
+          saveZeldaActivities(updatedList).then(function () {
+            renderTasks();
+            showFb("Iniciativa #" + savedCode + " atualizada com sucesso!", false);
+          });
+        });
+      }
+
+      var statusSelects = listWrap.querySelectorAll("[data-zc-status]");
+      for (var s = 0; s < statusSelects.length; s++) {
+        statusSelects[s].addEventListener("change", function () {
+          var id = this.getAttribute("data-zc-status");
+          var nextSt = this.value;
+          var nowStr = new Date().toLocaleString("pt-BR");
+          var nowEpoch = Date.now();
+          var list = getZeldaActivities().map(function (x) {
+            return x.id === id
+              ? Object.assign({}, x, { status: nextSt, updatedAt: nowStr, updatedAtEpochMs: nowEpoch, updatedBy: "Painel mm-sender" })
+              : x;
+          });
+          saveZeldaActivities(list).then(function () {
+            renderTasks();
+            showFb("Status da iniciativa atualizado!", false);
+          });
+        });
+      }
+
+      var delBtns = listWrap.querySelectorAll("[data-zc-del]");
+      for (var r = 0; r < delBtns.length; r++) {
+        delBtns[r].addEventListener("click", function () {
+          var id = this.getAttribute("data-zc-del");
+          if (editingTaskId === id) editingTaskId = null;
+          var list = getZeldaActivities().filter(function (x) { return x.id !== id; });
+          saveZeldaActivities(list).then(function () {
+            renderTasks();
+            showFb("Iniciativa removida.", false);
+          });
+        });
+      }
+    }
+
+    function renderZeldaLiveInboxFeed() {
+      var listEl = document.getElementById("zc-live-inbox-list");
+      var chipsEl = document.getElementById("zc-live-groups-chips");
+      if (!listEl) return;
+      var liveCfg = getCachedSettings();
+      var targetGrpName = liveCfg.zeldaGroupTarget || "";
+      var grps = cachedZeldaDiscoveredGroups.length ? cachedZeldaDiscoveredGroups : (readNodeJsonCandidates("dados/zelda-discovered-groups.json") || []);
+      var evs = cachedZeldaDebugEvents.length ? cachedZeldaDebugEvents : (readNodeJsonCandidates("dados/zelda-group-debug.json") || []);
+
+      function bindPickGroupButtons(rootContainer) {
+        if (!rootContainer) return;
+        var pickBtns = rootContainer.querySelectorAll("[data-zc-pick-grp]");
+        for (var pIdx = 0; pIdx < pickBtns.length; pIdx++) {
+          pickBtns[pIdx].addEventListener("click", function () {
+            var chosenG = this.getAttribute("data-zc-pick-grp") || "";
+            if (!chosenG) return;
+            persistSettingsEverywhere({ zeldaGroupTarget: chosenG }).then(function () {
+              updateZeldaCondominioHeaderBadges();
+              renderTasks();
+              renderZeldaLiveInboxFeed();
+              showFb("Grupo configurado definido para: " + chosenG, false);
+            });
+          });
+        }
+      }
+
+      if (chipsEl) {
+        if (Array.isArray(grps) && grps.length > 0) {
+          chipsEl.style.display = "block";
+          var chipHtml = '<span style="font-size:11px;color:' + subCol + ';margin-right:6px;">Grupos detectados no WhatsApp (clique para usar no parâmetro):</span>';
+          for (var gIdx = 0; gIdx < Math.min(grps.length, 10); gIdx++) {
+            var gObj = grps[gIdx];
+            var gLbl = gObj && (gObj.name || gObj.subject || gObj.jid || gObj.id);
+            if (!gLbl) continue;
+            chipHtml += '<button type="button" data-zc-pick-grp="' + escZeldaHtml(gLbl) + '" style="margin:2px 4px 2px 0;padding:3px 8px;border-radius:6px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:11px;font-weight:600;cursor:pointer;">' + escZeldaHtml(gLbl) + '</button>';
+          }
+          chipsEl.innerHTML = chipHtml;
+          bindPickGroupButtons(chipsEl);
+        } else {
+          chipsEl.style.display = "none";
+        }
+      }
+
+      if (!Array.isArray(evs) || evs.length === 0) {
+        listEl.innerHTML =
+          '<div style="padding:10px 12px;border-radius:8px;border:1px dashed ' + borderCol + ';font-size:12px;color:' + subCol + ';">' +
+            (targetGrpName
+              ? 'Nenhuma mensagem de grupo registrada ainda nesta sessão. Envie <strong>Zelda Lista</strong> pelo seu WhatsApp pessoal (ou marque o @ do WhatsApp conectado) no grupo <strong>' + escZeldaHtml(targetGrpName) + '</strong>.'
+              : 'Nenhuma mensagem de grupo registrada ainda nesta sessão. Configure o nome do grupo em <strong>Config Zelda</strong> ou envie uma mensagem no grupo para selecioná-lo com 1 clique.') +
+          '</div>';
+        return;
+      }
+
+      var rows = [];
+      for (var d = 0; d < Math.min(evs.length, 15); d++) {
+        var ev = evs[d];
+        if (!ev) continue;
+        var badge = ev.replied
+          ? '<span style="color:#059669;font-weight:700;">[RESPONDIDA PELA ZELDA]</span>'
+          : ev.error
+          ? '<span style="color:#dc2626;font-weight:700;">[ERRO DE ENVIO]</span>'
+          : ev.matched
+          ? '<span style="color:#d97706;font-weight:700;">[RECEBIDA · SEM COMANDO ZELDA]</span>'
+          : '<span style="color:#64748b;font-weight:700;">[GRUPO DIVERGENTE DO PARÂMETRO]</span>';
+        var whoStr = ev.senderName ? (' · De: <strong>' + escZeldaHtml(ev.senderName) + (ev.fromMe ? ' (WhatsApp conectado)' : '') + '</strong>') : '';
+        var pickBtnHtml = (!ev.matched && (ev.groupName || ev.chatId))
+          ? ' <button type="button" data-zc-pick-grp="' + escZeldaHtml(ev.groupName || ev.chatId) + '" style="margin-left:6px;padding:2px 7px;border-radius:5px;border:1px solid #93c5fd;background:#eff6ff;color:#1d4ed8;font-size:10px;font-weight:700;cursor:pointer;">Usar este grupo no parâmetro</button>'
+          : '';
+        rows.push(
+          '<div style="padding:8px 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';font-size:11px;line-height:1.45;">' +
+            '<div>' + badge + ' <strong>' + escZeldaHtml(ev.groupName || ev.chatId || "Grupo") + '</strong>' + whoStr + ' · <span style="color:' + subCol + ';">' + escZeldaHtml(ev.timestamp || "") + '</span>' + pickBtnHtml + '</div>' +
+            '<div style="margin-top:3px;color:' + txtCol + ';"><strong>Recebido:</strong> ' + escZeldaHtml(ev.preview || "") + '</div>' +
+            (ev.replyPreview ? '<div style="margin-top:3px;color:#059669;"><strong>Resposta Zelda:</strong> ' + escZeldaHtml(ev.replyPreview) + '</div>' : '') +
+            (ev.error ? '<div style="margin-top:3px;color:#dc2626;"><strong>Detalhe:</strong> ' + escZeldaHtml(ev.error) + '</div>' : '') +
+          '</div>'
+        );
+      }
+      listEl.innerHTML = rows.join("");
+      bindPickGroupButtons(listEl);
+    }
+
+    renderTasks();
+    renderZeldaLiveInboxFeed();
+
+    var refreshInboxBtn = document.getElementById("zc-refresh-inbox-btn");
+    if (refreshInboxBtn) {
+      refreshInboxBtn.addEventListener("click", function () {
+        refreshConnectionAndMetricsFromApis().then(function () {
+          renderZeldaLiveInboxFeed();
+          showFb("Mensagens recebidas atualizadas!", false);
+        });
+      });
+    }
+
+    window.addEventListener("zelda-activities-synced", function () {
+      if (!document.getElementById("zelda-condominio-manager-card")) return;
+      if (editingTaskId) return;
+      renderTasks();
+    });
+
+    window.addEventListener("zelda-debug-synced", function () {
+      if (!document.getElementById("zelda-condominio-manager-card")) return;
+      renderZeldaLiveInboxFeed();
+    });
+
+    if (searchIn) {
+      searchIn.addEventListener("input", function () {
+        searchQuery = this.value.trim();
+        renderTasks();
+      });
+    }
+
+    var focusNewBtn = document.getElementById("zc-focus-new-btn");
+    if (focusNewBtn) {
+      focusNewBtn.addEventListener("click", function () {
+        var box = document.getElementById("zc-create-box");
+        var tIn = document.getElementById("zc-title-in");
+        if (box && typeof box.scrollIntoView === "function") box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        if (tIn) tIn.focus();
+      });
+    }
+
+    function clearCreateInputs() {
+      var ids = ["zc-title-in", "zc-area-in", "zc-resp-in", "zc-due-in", "zc-notes-in"];
+      for (var k = 0; k < ids.length; k++) {
+        var el = document.getElementById(ids[k]);
+        if (el) el.value = "";
+      }
+      var prioIn = document.getElementById("zc-prio-in");
+      if (prioIn) prioIn.value = "media";
+      var stIn = document.getElementById("zc-status-in");
+      if (stIn) stIn.value = "pendente";
+    }
+
+    var clearBtn = document.getElementById("zc-clear-btn");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", clearCreateInputs);
+    }
+
+    function isUiBlank(val) {
+      var s = String(val || "").trim().toLowerCase();
+      return !s || s === "-" || s === "--" || s === "em branco" || s === "pular" || s === "vazio" || s === "nenhum" || s === "nenhuma" || s === "sem" || s === "n/a";
+    }
+
+    function validateZeldaUiForm(raw) {
+      var title = String(raw.title || "").replace(/\s+/g, " ").trim();
+      if (!title || isUiBlank(title)) {
+        return { ok: false, error: "O nome/descrição da iniciativa é obrigatório e não pode ficar vazio." };
+      }
+      if (title.length < 4 || title.length > 160 || (title.match(/[A-Za-zÀ-ÿ]/g) || []).length < 3 || /^\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?$/.test(title)) {
+        return { ok: false, error: "Informe um nome válido para a iniciativa (entre 4 e 160 caracteres, com texto descritivo)." };
+      }
+
+      var area = isUiBlank(raw.area) ? "" : String(raw.area || "").replace(/\s+/g, " ").trim();
+      if (area) {
+        if (area.length < 2 || area.length > 80 || (area.match(/[A-Za-zÀ-ÿ]/g) || []).length < 1 || /^\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?$/.test(area)) {
+          return { ok: false, error: "Área/Local inválida. Informe o local (ex.: Portaria, Área comum) ou deixe o campo sem informação." };
+        }
+      }
+
+      var responsible = isUiBlank(raw.responsible) ? "" : String(raw.responsible || "").replace(/\s+/g, " ").trim();
+      if (responsible) {
+        var respDigits = (responsible.match(/\d/g) || []).length;
+        if (responsible.length < 2 || responsible.length > 80 || (responsible.match(/[A-Za-zÀ-ÿ]/g) || []).length < 2 || respDigits >= 8 || /^\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?$/.test(responsible)) {
+          return { ok: false, error: "Responsável inválido. Informe o nome/cargo (evite apenas números ou datas) ou deixe sem informação." };
+        }
+      }
+
+      var dueRaw = isUiBlank(raw.dueDate) ? "" : String(raw.dueDate || "").replace(/\s+/g, " ").trim();
+      var dueDate = "";
+      if (dueRaw) {
+        var brM = dueRaw.match(/^(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2}|\d{4}))?$/);
+        var isoM = !brM ? dueRaw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/) : null;
+        var dd = 0, mm = 0, yy = 0;
+        if (brM) {
+          dd = Number(brM[1]);
+          mm = Number(brM[2]);
+          yy = !brM[3] ? new Date().getFullYear() : (brM[3].length === 2 ? 2000 + Number(brM[3]) : Number(brM[3]));
+        } else if (isoM) {
+          yy = Number(isoM[1]);
+          mm = Number(isoM[2]);
+          dd = Number(isoM[3]);
+        } else {
+          return { ok: false, error: "Data/Prazo inválido. Use o formato DD/MM/AAAA (ex.: 25/11/2026) ou deixe o campo em branco." };
+        }
+        var leap = (yy % 4 === 0 && yy % 100 !== 0) || (yy % 400 === 0);
+        var maxD = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+        if (yy < 2020 || yy > 2039 || mm < 1 || mm > 12 || dd < 1 || dd > maxD[mm - 1]) {
+          return { ok: false, error: "A data informada (" + dueRaw + ") não existe no calendário. Corrija ou deixe sem informação." };
+        }
+        dueDate = (dd < 10 ? "0" + dd : "" + dd) + "/" + (mm < 10 ? "0" + mm : "" + mm) + "/" + yy;
+      }
+
+      var notes = isUiBlank(raw.notes) ? "" : String(raw.notes || "").replace(/\s+/g, " ").trim();
+      if (notes) {
+        if (notes.length > 500 || (notes.match(/[A-Za-zÀ-ÿ0-9]/g) || []).length < 2) {
+          return { ok: false, error: "Observação inválida (use até 500 caracteres com texto válido ou deixe em branco)." };
+        }
+      }
+
+      return { ok: true, title: title, area: area, responsible: responsible, dueDate: dueDate, notes: notes };
+    }
+
+    function submitNewInitiative() {
+      var tIn = document.getElementById("zc-title-in");
+      var aIn = document.getElementById("zc-area-in");
+      var rIn = document.getElementById("zc-resp-in");
+      var dIn = document.getElementById("zc-due-in");
+      var pIn = document.getElementById("zc-prio-in");
+      var sIn = document.getElementById("zc-status-in");
+      var nIn = document.getElementById("zc-notes-in");
+      var checked = validateZeldaUiForm({
+        title: tIn ? tIn.value : "",
+        area: aIn ? aIn.value : "",
+        responsible: rIn ? rIn.value : "",
+        dueDate: dIn ? dIn.value : "",
+        notes: nIn ? nIn.value : ""
+      });
+      if (!checked.ok) {
+        showFb(checked.error, true);
+        if (tIn && !tIn.value.trim()) tIn.focus();
+        return;
+      }
+      var cur = getZeldaActivities();
+      var maxCode = cur.reduce(function (m, it) { return Math.max(m, Number(it.code || 0)); }, 0);
+      var newCode = maxCode + 1;
+      var chosenStatus = sIn ? sIn.value : "pendente";
+      var now = new Date().toLocaleString("pt-BR");
+      cur.push({
+        id: "zc_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+        code: newCode,
+        title: checked.title,
+        area: checked.area,
+        responsible: checked.responsible,
+        priority: pIn ? pIn.value : "media",
+        status: chosenStatus,
+        dueDate: checked.dueDate,
+        notes: checked.notes,
+        votes: [],
+        createdAt: now,
+        updatedAt: now,
+        updatedAtEpochMs: Date.now(),
+        updatedBy: "Painel mm-sender"
+      });
+      if (chosenStatus === "concluida" || chosenStatus === "reprovada") {
+        currentFilter = "concluidas";
+      } else if (currentFilter === "concluidas") {
+        currentFilter = "abertas";
+      }
+      clearCreateInputs();
+      saveZeldaActivities(cur).then(function () {
+        renderTasks();
+        showFb("Iniciativa #" + newCode + " incluída e sincronizada!", false);
+      });
+    }
+
+    var addBtn = document.getElementById("zc-add-btn");
+    if (addBtn) {
+      addBtn.addEventListener("click", submitNewInitiative);
+    }
+    var titleInEl = document.getElementById("zc-title-in");
+    if (titleInEl) {
+      titleInEl.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          submitNewInitiative();
+        }
+      });
+    }
+
+    var copyBtn = document.getElementById("zc-copy-btn");
+    if (copyBtn) {
+      copyBtn.addEventListener("click", function () {
+        var c = getCachedSettings();
+        var txt = formatWhatsAppList(getZeldaActivities(), c.zeldaGroupTarget || "Grupo Configurado");
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(txt);
+          showFb("Lista atualizada copiada para a área de transferência!", false);
+        }
+      });
+    }
+
+    var sendBtn = document.getElementById("zc-send-grp-btn");
+    if (sendBtn) {
+      sendBtn.addEventListener("click", function () {
+        if (!liveWaConn.connected) {
+          showFb("WhatsApp desconectado. Conecte o QR Code antes de disparar no grupo.", true);
+          return;
+        }
+        var c = getCachedSettings();
+        if (!c.zeldaGroupTarget) {
+          showFb("Defina o nome ou ID do Grupo Configurado em Config Zelda antes de enviar.", true);
+          return;
+        }
+        var txt = formatWhatsAppList(getZeldaActivities(), c.zeldaGroupTarget);
+        saveZeldaActivities(getZeldaActivities(), txt).then(function () {
+          showFb("Lista enfileirada para envio imediato no grupo " + c.zeldaGroupTarget + "!", false);
+        });
+      });
+    }
+  }
+
+  // TELAS SEPARADAS DE CONFIGURAÇÕES: "Config Geral" e "Config Zelda"
+  function findSettingsTabContainer(activeSec) {
+    if (activeSec !== "config_geral" && activeSec !== "config_zelda") return null;
+    var explicitSelectors = [
+      "#tab-configuracoes", "#tab-config", "#configuracoes", "#config",
+      "#aba-configuracoes", "#aba-config", "#settings-tab", "#tab-settings", "#settings",
+      "[data-tab-content='configuracoes']", "[data-tab-content='config']", "[data-tab-content='settings']"
+    ];
+    for (var i = 0; i < explicitSelectors.length; i++) {
+      var found = document.querySelector(explicitSelectors[i]);
+      if (found && !found.closest("nav, aside, [role='tablist']")) {
+        return { container: found, mode: "static-panel" };
+      }
+    }
+
+    var headings = document.querySelectorAll("h1, h2, h3, h4, legend");
+    for (var j = 0; j < headings.length; j++) {
+      var h = headings[j];
+      if (h.closest("nav, aside, button, a, [role='tab'], [data-serena-managed='1']")) continue;
+      var txt = (h.textContent || "").replace(/\s+/g, " ").trim();
+      if (txt.length > 0 && txt.length <= 55 && /^(?:⚙️\s*)?(?:configura[cç][oõ]es|configura[cç][aã]o|config\s*geral|config\s*zelda|ajustes|par[aâ]metros)\b/i.test(txt)) {
+        var panel = h.closest("form, section, main, [role='tabpanel']") || h.parentElement;
+        if (panel && panel.offsetHeight > 40) return { container: panel, anchorHeading: h, mode: "dynamic-heading" };
+      }
+    }
+
+    var mainPanel = findVisibleMainPanel(null);
+    return mainPanel ? { container: mainPanel, mode: "virtual-main" } : null;
+  }
+
+  function restoreSettingsSplitVisibility() {
+    var hiddenEls = document.querySelectorAll("[data-serena-split-hidden]");
+    for (var i = 0; i < hiddenEls.length; i++) {
+      hiddenEls[i].removeAttribute("data-serena-split-hidden");
+      hiddenEls[i].style.display = "";
+    }
+  }
+
+  function applySettingsScreenIsolation(container, mode, mountMode) {
+    if (!container) return;
+    restoreSettingsSplitVisibility();
+    var pNav = findPrimaryNavigationContainer();
+    var children = container.children;
+    for (var i = 0; i < children.length; i++) {
+      var ch = children[i];
+      if (ch.getAttribute("data-serena-managed") === "1") continue;
+      // NUNCA esconde barras de navegação, sidebars ou cabeçalhos!
+      if (pNav && (ch === pNav || ch.contains(pNav))) continue;
+      var tag = (ch.tagName || "").toUpperCase();
+      if (tag === "NAV" || tag === "ASIDE" || tag === "HEADER") continue;
+      if (ch.matches && ch.matches("[role='navigation'], [role='tablist'], [class*='sidebar'], [class*='navbar'], [class*='tabs'], [class*='menu']")) continue;
+      if (ch.querySelector && ch.querySelector("nav, aside, [role='navigation'], [role='tablist'], [class*='sidebar']")) continue;
+
+      var txt = (ch.textContent || "").replace(/\s+/g, " ").trim();
+      if (mode === "zelda" || mountMode === "virtual-main") {
+        // Em Config Zelda ou modo virtual, exibe a tela limpa correspondente sem afetar o menu!
+        ch.setAttribute("data-serena-split-hidden", mode);
+        ch.style.display = "none";
+      } else {
+        // Na tela nativa Config Geral, oculta apenas eventuais blocos pequenos exclusivos da Zelda
+        if (/\b(zelda|zelador|qu[oó]rum)\b/i.test(txt) && txt.length < 600 && !isNavigationOrStructuralNode(ch)) {
+          ch.setAttribute("data-serena-split-hidden", "zelda");
+          ch.style.display = "none";
+        }
+      }
+    }
+  }
+
+  function mountOrSyncSeparatedSettingsScreens(activeSec) {
+    if (document.querySelector("[data-serena-native-clinic-fields='true']")) return;
+    var target = findSettingsTabContainer(activeSec);
+    var existingGeral = document.getElementById("serena-clinic-fields-card");
+    var existingZelda = document.getElementById("serena-zelda-settings-card");
+
+    if (!target) {
+      if (existingGeral) existingGeral.remove();
+      if (existingZelda) existingZelda.remove();
+      restoreSettingsSplitVisibility();
+      return;
+    }
+
+    var mode = activeSec === "config_zelda" ? "zelda" : "geral";
+    applySettingsScreenIsolation(target.container, mode, target.mode);
+
+    var dark = isDarkBackground(target.container);
+    var cfg = getCachedSettings();
+    var labelColor = dark ? "#cbd5e1" : "#334155";
+    var subColor = dark ? "#94a3b8" : "#64748b";
+    var inputBg = dark ? "#0f172a" : "#f8fafc";
+    var inputBorder = dark ? "#334155" : "#cbd5e1";
+    var inputText = dark ? "#f8fafc" : "#0f172a";
+    var cardBorder = dark ? "rgba(148,163,184,0.25)" : "#cbd5e1";
+    var cardBg = dark ? "rgba(15,23,42,0.86)" : "#ffffff";
+
+    var switcherHtml =
+      '<div style="display:inline-flex;gap:4px;padding:4px;border-radius:8px;background:' + (dark ? "#0f172a" : "#f1f5f9") + ';margin-bottom:14px;">' +
+        '<button type="button" data-serena-switch-cfg="geral" style="height:30px;padding:0 12px;border-radius:6px;border:none;font-size:12px;font-weight:' + (mode === "geral" ? "700" : "500") + ';background:' + (mode === "geral" ? "#2563eb" : "transparent") + ';color:' + (mode === "geral" ? "#ffffff" : inputText) + ';cursor:pointer;">Config Geral</button>' +
+        '<button type="button" data-serena-switch-cfg="zelda" style="height:30px;padding:0 12px;border-radius:6px;border:none;font-size:12px;font-weight:' + (mode === "zelda" ? "700" : "500") + ';background:' + (mode === "zelda" ? "#2563eb" : "transparent") + ';color:' + (mode === "zelda" ? "#ffffff" : inputText) + ';cursor:pointer;">Config Zelda</button>' +
+      '</div>';
+
+    // MODO 1: TELA CONFIG GERAL (exclusivamente Clínica, Serena Não Lida e Escudo Anti-Ban)
+    if (mode === "geral") {
+      if (existingZelda) existingZelda.remove();
+      if (existingGeral && target.container.contains(existingGeral)) return;
+      if (existingGeral) existingGeral.remove();
+
+      var gCard = document.createElement("div");
+      gCard.id = "serena-clinic-fields-card";
+      gCard.setAttribute("data-serena-managed", "1");
+      gCard.style.cssText = "margin:14px 0 18px 0;padding:18px 20px;border-radius:12px;border:1px solid " + cardBorder + ";background:" + cardBg + ";color:" + inputText + ";font-family:system-ui,-apple-system,sans-serif;";
+
+      gCard.innerHTML =
+        switcherHtml +
+        '<div style="margin-bottom:12px;">' +
+          '<div style="font-size:16px;font-weight:700;line-height:1.3;">Config Geral · Clínica, Serena Corporativa (CRM/CRC/LGPD) &amp; Escudo Anti-Ban</div>' +
+          '<div style="font-size:12px;color:' + subColor + ';margin-top:2px;">Parâmetros gerais da clínica, WhatsApp da Recepção e atendimento 1:1 da Serena (as configurações da Zelda ficam separadas em Config Zelda).</div>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px;">' +
+          '<div><label for="serena-clinic-name-input" style="display:block;font-size:12px;font-weight:600;color:' + labelColor + ';margin-bottom:4px;">Nome da Clínica ({NOME_CLINICA})</label><input id="serena-clinic-name-input" name="clinicName" type="text" style="width:100%;height:38px;padding:0 12px;border-radius:8px;border:1px solid ' + inputBorder + ';background:' + inputBg + ';color:' + inputText + ';font-size:13px;box-sizing:border-box;" /></div>' +
+          '<div><label for="serena-clinic-address-input" style="display:block;font-size:12px;font-weight:600;color:' + labelColor + ';margin-bottom:4px;">Endereço da Clínica ({ENDERECO_CLINICA})</label><input id="serena-clinic-address-input" name="clinicAddress" type="text" style="width:100%;height:38px;padding:0 12px;border-radius:8px;border:1px solid ' + inputBorder + ';background:' + inputBg + ';color:' + inputText + ';font-size:13px;box-sizing:border-box;" /></div>' +
+          '<div><label for="serena-clinic-parking-input" style="display:block;font-size:12px;font-weight:600;color:' + labelColor + ';margin-bottom:4px;">Estacionamento / Referência</label><input id="serena-clinic-parking-input" name="parkingInfo" type="text" style="width:100%;height:38px;padding:0 12px;border-radius:8px;border:1px solid ' + inputBorder + ';background:' + inputBg + ';color:' + inputText + ';font-size:13px;box-sizing:border-box;" /></div>' +
+          '<div><label for="serena-reception-wa-input" style="display:block;font-size:12px;font-weight:600;color:' + labelColor + ';margin-bottom:4px;">WhatsApp Recepção ({WHATSAPP_RECEPCAO})</label><input id="serena-reception-wa-input" name="receptionWhatsapp" placeholder="Ex: 5511999998888 (alertas 🔔)" type="text" style="width:100%;height:38px;padding:0 12px;border-radius:8px;border:1px solid ' + inputBorder + ';background:' + inputBg + ';color:' + inputText + ';font-size:13px;box-sizing:border-box;" /></div>' +
+          '<div><label for="serena-hourly-cap-input" style="display:block;font-size:12px;font-weight:600;color:' + labelColor + ';margin-bottom:4px;">Teto Disparo Ativo / Hora (Anti-Ban &lt;= 30)</label><input id="serena-hourly-cap-input" name="maxActiveMessagesPerHour" type="number" min="5" max="30" style="width:100%;height:38px;padding:0 12px;border-radius:8px;border:1px solid ' + inputBorder + ';background:' + inputBg + ';color:' + inputText + ';font-size:13px;box-sizing:border-box;" /></div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:16px;margin-top:12px;flex-wrap:wrap;font-size:12px;color:' + labelColor + ';">' +
+          '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input id="serena-crc-enabled-chk" type="checkbox" /> <strong>Controle CRC Ativo (pausar Serena quando operador assumir)</strong></label>' +
+          '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input id="serena-keep-unread-chk" type="checkbox" /> Manter conversas atendidas pela Serena como Não Lidas</label>' +
+          '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input id="serena-spintax-chk" type="checkbox" /> Spintax + Delay 3–7s + Digitando 2–5s + Opt-Out LGPD</label>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;flex-wrap:wrap;">' +
+          '<span id="serena-clinic-save-feedback" style="font-size:12px;font-weight:600;color:#10b981;"></span>' +
+          '<button id="serena-clinic-save-btn" type="button" style="height:36px;padding:0 16px;border-radius:8px;border:none;background:#2563eb;color:#ffffff;font-size:12px;font-weight:600;cursor:pointer;">Salvar Config Geral</button>' +
+        '</div>';
+
+      target.container.insertBefore(gCard, target.container.firstChild);
+
+      var swBtnsG = gCard.querySelectorAll("[data-serena-switch-cfg]");
+      for (var sg = 0; sg < swBtnsG.length; sg++) {
+        swBtnsG[sg].addEventListener("click", function () {
+          activeSettingsScreen = this.getAttribute("data-serena-switch-cfg") || "geral";
+          lastClickedSection = activeSettingsScreen === "zelda" ? "config_zelda" : "config_geral";
+          scheduleCheck();
+        });
+      }
+
+      var nameInput = document.getElementById("serena-clinic-name-input");
+      var addrInput = document.getElementById("serena-clinic-address-input");
+      var parkInput = document.getElementById("serena-clinic-parking-input");
+      var recWaInput = document.getElementById("serena-reception-wa-input");
+      var hourlyCapInput = document.getElementById("serena-hourly-cap-input");
+      var crcEnabledChk = document.getElementById("serena-crc-enabled-chk");
+      var keepUnreadChk = document.getElementById("serena-keep-unread-chk");
+      var spintaxChk = document.getElementById("serena-spintax-chk");
+      var saveBtn = document.getElementById("serena-clinic-save-btn");
+      var feedback = document.getElementById("serena-clinic-save-feedback");
+
+      function populateGeral(sCfg) {
+        if (!sCfg) return;
+        if (nameInput && document.activeElement !== nameInput) nameInput.value = sCfg.clinicName || "";
+        if (addrInput && document.activeElement !== addrInput) addrInput.value = sCfg.clinicAddress || sCfg.address || "";
+        if (parkInput && document.activeElement !== parkInput) parkInput.value = sCfg.parkingInfo || "";
+        if (recWaInput && document.activeElement !== recWaInput) recWaInput.value = sCfg.receptionWhatsapp || "";
+        if (hourlyCapInput && document.activeElement !== hourlyCapInput) hourlyCapInput.value = String(sCfg.maxActiveMessagesPerHour || 30);
+        if (crcEnabledChk) crcEnabledChk.checked = sCfg.crcEnabled !== false;
+        if (keepUnreadChk) keepUnreadChk.checked = sCfg.serenaKeepUnreadForHuman !== false;
+        if (spintaxChk) spintaxChk.checked = sCfg.enableSpintax !== false;
+      }
+      populateGeral(cfg);
+      loadLatestSettingsAsync().then(populateGeral);
+
+      if (saveBtn) {
+        saveBtn.addEventListener("click", function () {
+          persistSettingsEverywhere({
+            clinicName: nameInput ? nameInput.value : "",
+            clinicAddress: addrInput ? addrInput.value : "",
+            parkingInfo: parkInput ? parkInput.value : "",
+            receptionWhatsapp: recWaInput ? recWaInput.value : "",
+            crcEnabled: crcEnabledChk ? Boolean(crcEnabledChk.checked) : true,
+            maxActiveMessagesPerHour: Math.min(30, Math.max(5, Number(hourlyCapInput ? hourlyCapInput.value : 30) || 30)),
+            serenaKeepUnreadForHuman: keepUnreadChk ? Boolean(keepUnreadChk.checked) : true,
+            enableSpintax: spintaxChk ? Boolean(spintaxChk.checked) : true,
+            enableOptOutBlacklist: spintaxChk ? Boolean(spintaxChk.checked) : true
+          }).then(function () {
+            if (feedback) {
+              feedback.textContent = "✓ Config Geral salva e sincronizada!";
+              setTimeout(function () { if (feedback) feedback.textContent = ""; }, 3500);
+            }
+          });
+        });
+      }
+      return;
+    }
+
+    // MODO 2: TELA CONFIG ZELDA (exclusivamente Grupo Configurado, Zelador Sem Voto, Quórum e Status Real)
+    if (existingGeral) existingGeral.remove();
+    if (existingZelda && target.container.contains(existingZelda)) {
+      updateZeldaCondominioHeaderBadges();
+      return;
+    }
+    if (existingZelda) existingZelda.remove();
+
+    var zCard = document.createElement("div");
+    zCard.id = "serena-zelda-settings-card";
+    zCard.setAttribute("data-serena-managed", "1");
+    zCard.style.cssText = "margin:14px 0 18px 0;padding:18px 20px;border-radius:12px;border:1px solid " + cardBorder + ";background:" + cardBg + ";color:" + inputText + ";font-family:system-ui,-apple-system,sans-serif;";
+
+    zCard.innerHTML =
+      switcherHtml +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;padding-bottom:12px;margin-bottom:14px;border-bottom:1px solid ' + cardBorder + ';">' +
+        '<div>' +
+          '<div style="font-size:16px;font-weight:700;line-height:1.3;">Config Zelda · Grupo do Condomínio & Governança do Conselho</div>' +
+          '<div style="font-size:12px;color:' + subColor + ';margin-top:2px;">Tela exclusiva da Zelda: grupo monitorado, bloqueio de voto do Zelador e quórum de aprovação.</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:18px;flex-wrap:wrap;font-size:12px;">' +
+          '<div><span style="color:' + subColor + ';display:block;">Status Real do WhatsApp</span><strong id="serena-zelda-cfg-conn-val" style="font-size:13px;"></strong></div>' +
+          '<div><span style="color:' + subColor + ';display:block;">Grupo Configurado</span><strong id="serena-zelda-cfg-grp-val" style="font-size:13px;"></strong></div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">' +
+        '<div><label for="serena-zelda-group-input" style="display:block;font-size:12px;font-weight:600;color:' + labelColor + ';margin-bottom:4px;">Grupo Configurado (Nome exato ou ID @g.us)</label><input id="serena-zelda-group-input" name="zeldaGroupTarget" placeholder="Informe o nome do grupo do WhatsApp ou ID @g.us" type="text" style="width:100%;height:38px;padding:0 12px;border-radius:8px;border:1px solid ' + inputBorder + ';background:' + inputBg + ';color:' + inputText + ';font-size:13px;box-sizing:border-box;" /></div>' +
+        '<div><label for="serena-zelda-caretaker-input" style="display:block;font-size:12px;font-weight:600;color:' + labelColor + ';margin-bottom:4px;">WhatsApp do Zelador (Sem Direito a Voto)</label><input id="serena-zelda-caretaker-input" name="zeldaCaretakerPhone" placeholder="Ex: 11988887777" type="text" style="width:100%;height:38px;padding:0 12px;border-radius:8px;border:1px solid ' + inputBorder + ';background:' + inputBg + ';color:' + inputText + ';font-size:13px;box-sizing:border-box;" /></div>' +
+        '<div><label for="serena-zelda-quorum-input" style="display:block;font-size:12px;font-weight:600;color:' + labelColor + ';margin-bottom:4px;">Quórum Mínimo de Votos (Conselho)</label><input id="serena-zelda-quorum-input" name="zeldaApprovalQuorum" type="number" min="1" max="20" style="width:100%;height:38px;padding:0 12px;border-radius:8px;border:1px solid ' + inputBorder + ';background:' + inputBg + ';color:' + inputText + ';font-size:13px;box-sizing:border-box;" /></div>' +
+      '</div>' +
+      '<div id="serena-zelda-discovered-groups-wrap" style="margin-top:12px;padding:10px 12px;border-radius:8px;border:1px dashed ' + inputBorder + ';background:' + inputBg + ';display:none;">' +
+        '<div style="font-size:11px;font-weight:700;color:' + subColor + ';margin-bottom:6px;">GRUPOS DETECTADOS NO WHATSAPP (CLIQUE PARA USAR):</div>' +
+        '<div id="serena-zelda-discovered-groups-list" style="display:flex;flex-wrap:wrap;gap:6px;"></div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:16px;margin-top:12px;flex-wrap:wrap;font-size:12px;color:' + labelColor + ';">' +
+        '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input id="serena-zelda-enabled-chk" type="checkbox" /> <strong>Habilitar resposta interativa da Zelda no grupo configurado</strong></label>' +
+        '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;"><input id="serena-zelda-fromme-chk" type="checkbox" /> Permitir teste pelo próprio número (fromMe)</label>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;flex-wrap:wrap;">' +
+        '<span id="serena-zelda-save-feedback" style="font-size:12px;font-weight:600;color:#10b981;"></span>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+          '<button id="serena-zelda-refresh-diag-btn" type="button" style="height:36px;padding:0 12px;border-radius:8px;border:1px solid ' + inputBorder + ';background:' + inputBg + ';color:' + inputText + ';font-size:12px;font-weight:600;cursor:pointer;">Atualizar Diagnóstico do Grupo</button>' +
+          '<button id="serena-zelda-save-btn" type="button" style="height:36px;padding:0 16px;border-radius:8px;border:none;background:#2563eb;color:#ffffff;font-size:12px;font-weight:600;cursor:pointer;">Salvar Config Zelda</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="serena-zelda-group-debug-wrap" style="margin-top:12px;padding-top:10px;border-top:1px solid ' + cardBorder + ';display:none;">' +
+        '<div style="font-size:11px;font-weight:700;color:' + subColor + ';margin-bottom:6px;">ÚLTIMOS EVENTOS RECEBIDOS NOS GRUPOS (DIAGNÓSTICO EM TEMPO REAL):</div>' +
+        '<div id="serena-zelda-group-debug-list" style="display:flex;flex-direction:column;gap:4px;font-size:11px;"></div>' +
+      '</div>';
+
+    target.container.insertBefore(zCard, target.container.firstChild);
+    updateZeldaCondominioHeaderBadges();
+
+    var swBtnsZ = zCard.querySelectorAll("[data-serena-switch-cfg]");
+    for (var sz = 0; sz < swBtnsZ.length; sz++) {
+      swBtnsZ[sz].addEventListener("click", function () {
+        activeSettingsScreen = this.getAttribute("data-serena-switch-cfg") || "geral";
+        lastClickedSection = activeSettingsScreen === "zelda" ? "config_zelda" : "config_geral";
+        scheduleCheck();
+      });
+    }
+
+    var zGrpInput = document.getElementById("serena-zelda-group-input");
+    var zCaretakerInput = document.getElementById("serena-zelda-caretaker-input");
+    var zQuorumInput = document.getElementById("serena-zelda-quorum-input");
+    var zEnabledChk = document.getElementById("serena-zelda-enabled-chk");
+    var zFromMeChk = document.getElementById("serena-zelda-fromme-chk");
+    var zSaveBtn = document.getElementById("serena-zelda-save-btn");
+    var zRefreshDiagBtn = document.getElementById("serena-zelda-refresh-diag-btn");
+    var zFeedback = document.getElementById("serena-zelda-save-feedback");
+
+    function renderZeldaGroupDiagnostics(groupsArr, debugArr) {
+      var gWrap = document.getElementById("serena-zelda-discovered-groups-wrap");
+      var gList = document.getElementById("serena-zelda-discovered-groups-list");
+      if (gWrap && gList) {
+        if (Array.isArray(groupsArr) && groupsArr.length > 0) {
+          gWrap.style.display = "block";
+          gList.innerHTML = "";
+          for (var gi = 0; gi < Math.min(groupsArr.length, 16); gi++) {
+            var gItem = groupsArr[gi];
+            var gLabel = gItem && (gItem.name || gItem.subject || gItem.jid || gItem.id);
+            var gJid = gItem && (gItem.jid || gItem.id || "");
+            if (!gLabel) continue;
+            var btnG = document.createElement("button");
+            btnG.type = "button";
+            btnG.textContent = gLabel;
+            btnG.title = "ID: " + gJid;
+            btnG.style.cssText = "padding:4px 9px;border-radius:6px;border:1px solid " + inputBorder + ";background:" + cardBg + ";color:" + inputText + ";font-size:11px;font-weight:600;cursor:pointer;";
+            (function (chosenVal) {
+              btnG.addEventListener("click", function () {
+                if (zGrpInput) zGrpInput.value = chosenVal;
+              });
+            })(gLabel);
+            gList.appendChild(btnG);
+          }
+        } else {
+          gWrap.style.display = "none";
+        }
+      }
+
+      var dWrap = document.getElementById("serena-zelda-group-debug-wrap");
+      var dList = document.getElementById("serena-zelda-group-debug-list");
+      if (dWrap && dList) {
+        if (Array.isArray(debugArr) && debugArr.length > 0) {
+          dWrap.style.display = "block";
+          var htmlRows = [];
+          for (var di = 0; di < Math.min(debugArr.length, 5); di++) {
+            var ev = debugArr[di];
+            if (!ev) continue;
+            var statusBadge = ev.replied
+              ? '<span style="color:#059669;font-weight:700;">[RESPONDIDO]</span>'
+              : ev.matched
+              ? '<span style="color:#d97706;font-weight:700;">[GRUPO OK · ' + escHtml(ev.reason || "sem comando Zelda") + ']</span>'
+              : '<span style="color:#dc2626;font-weight:700;">[OUTRO GRUPO]</span>';
+            htmlRows.push(
+              '<div style="padding:5px 8px;border-radius:6px;background:' + inputBg + ';border:1px solid ' + cardBorder + ';">' +
+                statusBadge + ' <strong>' + escHtml(ev.groupName || ev.chatSubject || ev.chatId || "Grupo") + '</strong> · ' +
+                '<span style="color:' + subColor + ';">' + escHtml(ev.timestamp || "") + '</span> — ' +
+                '<span>' + escHtml(ev.preview || ev.textPreview || "") + '</span>' +
+                (ev.error ? ' <span style="color:#dc2626;">(' + escHtml(ev.error) + ')</span>' : '') +
+              '</div>'
+            );
+          }
+          dList.innerHTML = htmlRows.join("");
+        } else {
+          dWrap.style.display = "none";
+        }
+      }
+    }
+
+    function loadZeldaDiagnosticsLive() {
+      var fsGroups = readNodeJsonCandidates("dados/zelda-discovered-groups.json");
+      var fsDebug = readNodeJsonCandidates("dados/zelda-group-debug.json");
+      if (Array.isArray(fsGroups) || Array.isArray(fsDebug)) {
+        renderZeldaGroupDiagnostics(fsGroups || [], fsDebug || []);
+      }
+      if (typeof fetch === "function") {
+        fetch("http://127.0.0.1:17890/status")
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            if (d) {
+              renderZeldaGroupDiagnostics(d.zeldaDiscoveredGroups || fsGroups || [], d.zeldaGroupDebug || fsDebug || []);
+            }
+          })
+          .catch(function () {});
+      }
+    }
+
+    function populateZeldaCfg(sCfg) {
+      if (!sCfg) return;
+      if (zGrpInput && document.activeElement !== zGrpInput) zGrpInput.value = sCfg.zeldaGroupTarget || sCfg.grupoZelda || "";
+      if (zCaretakerInput && document.activeElement !== zCaretakerInput) zCaretakerInput.value = sCfg.zeldaCaretakerPhone || sCfg.whatsappZelador || "";
+      if (zQuorumInput && document.activeElement !== zQuorumInput) zQuorumInput.value = String(sCfg.zeldaApprovalQuorum || 3);
+      if (zEnabledChk) zEnabledChk.checked = sCfg.zeldaGroupEnabled !== false;
+      if (zFromMeChk) zFromMeChk.checked = sCfg.zeldaAllowFromMeTest !== false;
+    }
+    populateZeldaCfg(cfg);
+    loadLatestSettingsAsync().then(populateZeldaCfg);
+    loadZeldaDiagnosticsLive();
+
+    if (zRefreshDiagBtn) {
+      zRefreshDiagBtn.addEventListener("click", function () {
+        loadZeldaDiagnosticsLive();
+        if (zFeedback) {
+          zFeedback.textContent = "✓ Diagnóstico de grupos atualizado!";
+          setTimeout(function () { if (zFeedback) zFeedback.textContent = ""; }, 2500);
+        }
+      });
+    }
+
+    if (zSaveBtn) {
+      zSaveBtn.addEventListener("click", function () {
+        persistSettingsEverywhere({
+          zeldaGroupTarget: zGrpInput ? zGrpInput.value : "",
+          zeldaCaretakerPhone: zCaretakerInput ? zCaretakerInput.value : "",
+          zeldaApprovalQuorum: Math.max(1, Math.min(20, Number(zQuorumInput ? zQuorumInput.value : 3) || 3)),
+          zeldaGroupEnabled: zEnabledChk ? Boolean(zEnabledChk.checked) : true,
+          zeldaAllowFromMeTest: zFromMeChk ? Boolean(zFromMeChk.checked) : true
+        }).then(function () {
+          updateZeldaCondominioHeaderBadges();
+          loadZeldaDiagnosticsLive();
+          if (zFeedback) {
+            zFeedback.textContent = "✓ Config Zelda salva e sincronizada!";
+            setTimeout(function () { if (zFeedback) zFeedback.textContent = ""; }, 3500);
+          }
+        });
+      });
+    }
+  }
+
+  var MM_OP_STORE_KEY = "mm_sender_operacional_v1";
+
+  function loadLocalOpStore() {
+    var fsObj = readNodeJsonCandidates("dados/mm-sender-operacional.json");
+    if (fsObj && typeof fsObj === "object") {
+      try { localStorage.setItem(MM_OP_STORE_KEY, JSON.stringify(fsObj)); } catch (e) {}
+      return fsObj;
+    }
+    try {
+      var raw = localStorage.getItem(MM_OP_STORE_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (e) {}
+    return { contacts: [], messages: [], associations: [], appointments: [], queue: [] };
+  }
+
+  function saveLocalOpStore(store) {
+    try { localStorage.setItem(MM_OP_STORE_KEY, JSON.stringify(store)); } catch (e) {}
+    writeNodeJsonCandidates("dados/mm-sender-operacional.json", store);
+  }
+
+  function restoreEmbeddedOpIsolation() {
+    var hiddenEls = document.querySelectorAll("[data-serena-op-view-hidden]");
+    for (var i = 0; i < hiddenEls.length; i++) {
+      hiddenEls[i].removeAttribute("data-serena-op-view-hidden");
+      hiddenEls[i].style.display = "";
+    }
+  }
+
+  function mountOrSyncEmbeddedOperationalTab(activeSec) {
+    var middleTabs = ["agendamentos", "disparos_massa", "contatos", "mensagens", "associacoes", "disparar", "status"];
+    var existingCard = document.getElementById("serena-embedded-op-card");
+    if (middleTabs.indexOf(activeSec) < 0) {
+      if (existingCard) existingCard.remove();
+      restoreEmbeddedOpIsolation();
+      return;
+    }
+
+    // Se existe botão nativo da própria aplicação para essa aba (não injetado por nós), respeita a tela nativa!
+    var pNav = findPrimaryNavigationContainer();
+    if (pNav) {
+      var navBtns = pNav.querySelectorAll("button, a, [role='tab']");
+      for (var nb = 0; nb < navBtns.length; nb++) {
+        var bEl = navBtns[nb];
+        if (bEl.getAttribute("data-serena-managed") === "1") continue;
+        if (mapLabelToCanonicalSection(bEl.textContent || "") === activeSec) {
+          if (existingCard) existingCard.remove();
+          restoreEmbeddedOpIsolation();
+          return;
+        }
+      }
+    }
+
+    var mainContainer = findVisibleMainPanel(null);
+    if (!mainContainer) return;
+
+    // Oculta temporariamente filhos não-estruturais para exibir a tela limpa correspondente
+    var children = mainContainer.children;
+    for (var c = 0; c < children.length; c++) {
+      var ch = children[c];
+      if (ch.getAttribute("data-serena-managed") === "1") continue;
+      if (pNav && (ch === pNav || ch.contains(pNav))) continue;
+      var tg = (ch.tagName || "").toUpperCase();
+      if (tg === "NAV" || tg === "ASIDE" || tg === "HEADER") continue;
+      ch.setAttribute("data-serena-op-view-hidden", "1");
+      ch.style.display = "none";
+    }
+
+    if (existingCard && existingCard.getAttribute("data-op-sec") === activeSec && mainContainer.contains(existingCard)) {
+      return;
+    }
+    if (existingCard) existingCard.remove();
+
+    var dark = isDarkBackground(mainContainer);
+    var borderCol = dark ? "rgba(148,163,184,0.25)" : "#cbd5e1";
+    var bgCol = dark ? "rgba(15,23,42,0.88)" : "#ffffff";
+    var txtCol = dark ? "#f8fafc" : "#0f172a";
+    var subCol = dark ? "#94a3b8" : "#64748b";
+    var inBg = dark ? "#0f172a" : "#f8fafc";
+    var cfg = getCachedSettings();
+    var store = loadLocalOpStore();
+    store.contacts = Array.isArray(store.contacts) ? store.contacts : [];
+    store.messages = Array.isArray(store.messages) ? store.messages : [];
+    store.associations = Array.isArray(store.associations) ? store.associations : [];
+    store.appointments = Array.isArray(store.appointments) ? store.appointments : [];
+    store.queue = Array.isArray(store.queue) ? store.queue : [];
+
+    var card = document.createElement("div");
+    card.id = "serena-embedded-op-card";
+    card.setAttribute("data-serena-managed", "1");
+    card.setAttribute("data-op-sec", activeSec);
+    card.style.cssText = "margin:14px 0 18px 0;padding:18px 20px;border-radius:12px;border:1px solid " + borderCol + ";background:" + bgCol + ";color:" + txtCol + ";font-family:system-ui,-apple-system,sans-serif;";
+
+    var titles = {
+      agendamentos: "Agendamentos · Agenda da Clínica (30 min · Brasília)",
+      disparos_massa: "Disparos em Massa · Escudo Anti-Banimento Ativo",
+      contatos: "Contatos · Gestão de Lista & Opt-Out [BLACKLIST]",
+      mensagens: "Mensagens · Modelos com Variáveis e Spintax",
+      associacoes: "Associações · Vínculo Contatos × Mensagens",
+      disparar: "Disparar · Fila de Execução Controlada (<= 30 msgs/h)",
+      status: "Status · Saúde da Sessão WhatsApp & Operação"
+    };
+
+    var bodyHtml = '<div style="padding-bottom:12px;margin-bottom:14px;border-bottom:1px solid ' + borderCol + ';"><div style="font-size:16px;font-weight:700;">' + (titles[activeSec] || activeSec) + '</div><div style="font-size:12px;color:' + subCol + ';margin-top:2px;">' + cfg.clinicName + ' · ' + cfg.clinicAddress + '</div></div>';
+
+    if (activeSec === "status") {
+      var connTxt = liveWaConn.connected ? "Conectada (WhatsApp Online)" : "Desconectada (WhatsApp Offline)";
+      bodyHtml += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;font-size:13px;">' +
+        '<div><span style="color:' + subCol + ';display:block;font-size:11px;">Sessão WhatsApp</span><strong style="color:' + (liveWaConn.connected ? "#059669" : "#dc2626") + ';">' + connTxt + '</strong></div>' +
+        '<div><span style="color:' + subCol + ';display:block;font-size:11px;">Limite Horário Anti-Ban</span><strong>' + (cfg.maxActiveMessagesPerHour || 30) + ' msgs/h · Spintax Ativo</strong></div>' +
+        '<div><span style="color:' + subCol + ';display:block;font-size:11px;">Contatos / Mensagens</span><strong>' + store.contacts.length + ' contatos · ' + store.messages.length + ' modelos</strong></div>' +
+        '<div><span style="color:' + subCol + ';display:block;font-size:11px;">Grupo Zelda Configurado</span><strong>' + (cfg.zeldaGroupTarget || "Não configurado") + '</strong></div>' +
+      '</div>';
+    } else if (activeSec === "disparos_massa") {
+      bodyHtml += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;font-size:13px;">' +
+        '<div><label style="display:block;font-size:11px;color:' + subCol + ';margin-bottom:4px;">Máx. Mensagens Ativas / Hora</label><input id="op-dm-hourly" type="number" min="5" max="30" value="' + (cfg.maxActiveMessagesPerHour || 30) + '" style="width:100%;height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';" /></div>' +
+        '<div><label style="display:block;font-size:11px;color:' + subCol + ';margin-bottom:4px;">Delay de Reação Mín (ms)</label><input id="op-dm-rmin" type="number" value="' + (cfg.reactionDelayMinMs || 3000) + '" style="width:100%;height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';" /></div>' +
+        '<div><label style="display:block;font-size:11px;color:' + subCol + ';margin-bottom:4px;">Simulação Digitando Mín (ms)</label><input id="op-dm-tmin" type="number" value="' + (cfg.typingStateMinMs || 2000) + '" style="width:100%;height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';" /></div>' +
+      '</div>' +
+      '<div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;"><span id="op-dm-fb" style="font-size:12px;color:#059669;font-weight:600;"></span><button id="op-dm-save" type="button" style="height:36px;padding:0 16px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">Salvar Parâmetros de Disparo em Massa</button></div>';
+    } else if (activeSec === "contatos") {
+      bodyHtml += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;margin-bottom:12px;">' +
+        '<input id="op-cnt-name" placeholder="Nome do contato" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:12px;" />' +
+        '<input id="op-cnt-phone" placeholder="WhatsApp (Ex: 11999998888)" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:12px;" />' +
+        '<input id="op-cnt-tag" placeholder="Tag (Ex: Geral)" value="Geral" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:12px;" />' +
+        '<button id="op-cnt-add" type="button" style="height:36px;padding:0 14px;border-radius:8px;border:none;background:#0f172a;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">+ Contato</button>' +
+      '</div><div id="op-cnt-list" style="font-size:12px;"></div>';
+    } else if (activeSec === "mensagens") {
+      bodyHtml += '<div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:12px;">' +
+        '<input id="op-msg-title" placeholder="Título do modelo" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:12px;" />' +
+        '<textarea id="op-msg-body" rows="3" placeholder="{Olá|Oi}, {nome}! Aqui é da {clinica} ({endereco})." style="padding:8px 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:12px;"></textarea>' +
+        '<div><button id="op-msg-add" type="button" style="height:34px;padding:0 14px;border-radius:8px;border:none;background:#0f172a;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">Salvar Modelo</button></div>' +
+      '</div><div id="op-msg-list" style="font-size:12px;"></div>';
+    } else if (activeSec === "associacoes") {
+      var msgOpts = store.messages.map(function (m) { return '<option value="' + m.id + '">' + m.title + '</option>'; }).join("");
+      bodyHtml += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;margin-bottom:12px;">' +
+        '<input id="op-as-name" placeholder="Nome da Associação" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:12px;" />' +
+        '<input id="op-as-tag" placeholder="Tag dos Contatos" value="Geral" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:12px;" />' +
+        '<select id="op-as-msg" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:12px;">' + (msgOpts || '<option value="">Cadastre uma mensagem primeiro</option>') + '</select>' +
+        '<button id="op-as-add" type="button" style="height:36px;padding:0 14px;border-radius:8px;border:none;background:#0f172a;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">Associar</button>' +
+      '</div><div id="op-as-list" style="font-size:12px;"></div>';
+    } else if (activeSec === "agendamentos") {
+      bodyHtml += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;margin-bottom:12px;">' +
+        '<input id="op-ap-name" placeholder="Paciente" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:12px;" />' +
+        '<input id="op-ap-phone" placeholder="WhatsApp" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:12px;" />' +
+        '<input id="op-ap-date" type="date" value="' + getBrtIsoDate(0) + '" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:12px;" />' +
+        '<input id="op-ap-time" type="time" value="09:00" style="height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:12px;" />' +
+        '<button id="op-ap-add" type="button" style="height:36px;padding:0 14px;border-radius:8px;border:none;background:#0f172a;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">Agendar</button>' +
+      '</div><div id="op-ap-list" style="font-size:12px;"></div>';
+    } else if (activeSec === "disparar") {
+      var asOpts = store.associations.map(function (a) { return '<option value="' + a.id + '">' + a.name + ' (Tag: ' + a.tag + ')</option>'; }).join("");
+      bodyHtml += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">' +
+        '<select id="op-dp-assoc" style="flex:1;min-width:220px;height:36px;padding:0 10px;border-radius:8px;border:1px solid ' + borderCol + ';background:' + inBg + ';color:' + txtCol + ';font-size:12px;">' + (asOpts || '<option value="">Crie uma associação em Associações</option>') + '</select>' +
+        '<button id="op-dp-run" type="button" style="height:36px;padding:0 16px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">Enfileirar & Disparar com Anti-Ban</button>' +
+      '</div><div id="op-dp-list" style="font-size:12px;"></div>';
+    }
+
+    card.innerHTML = bodyHtml;
+    mainContainer.insertBefore(card, mainContainer.firstChild);
+
+    function rerenderOpCard() {
+      card.removeAttribute("data-op-sec");
+      mountOrSyncEmbeddedOperationalTab(activeSec);
+    }
+
+    if (activeSec === "disparos_massa") {
+      var dmBtn = document.getElementById("op-dm-save");
+      if (dmBtn) dmBtn.addEventListener("click", function () {
+        persistSettingsEverywhere({
+          maxActiveMessagesPerHour: Math.min(30, Math.max(5, Number(document.getElementById("op-dm-hourly").value || 30))),
+          reactionDelayMinMs: Number(document.getElementById("op-dm-rmin").value || 3000),
+          typingStateMinMs: Number(document.getElementById("op-dm-tmin").value || 2000)
+        }).then(function () {
+          var fb = document.getElementById("op-dm-fb");
+          if (fb) fb.textContent = "✓ Parâmetros Anti-Ban salvos!";
+        });
+      });
+    } else if (activeSec === "contatos") {
+      var cWrap = document.getElementById("op-cnt-list");
+      if (cWrap) {
+        cWrap.innerHTML = store.contacts.length
+          ? store.contacts.map(function (c) { return '<div style="padding:7px 0;border-bottom:1px solid ' + borderCol + ';"><strong>' + c.name + '</strong> · ' + c.phone + ' · Tag: ' + c.tag + '</div>'; }).join("")
+          : '<div style="color:' + subCol + ';">Nenhum contato cadastrado ainda.</div>';
+      }
+      var cAdd = document.getElementById("op-cnt-add");
+      if (cAdd) cAdd.addEventListener("click", function () {
+        var ph = document.getElementById("op-cnt-phone").value.trim();
+        if (!ph) return;
+        store.contacts.unshift({ id: "c_" + Date.now(), name: document.getElementById("op-cnt-name").value.trim() || ph, phone: ph, tag: document.getElementById("op-cnt-tag").value.trim() || "Geral" });
+        saveLocalOpStore(store);
+        rerenderOpCard();
+      });
+    } else if (activeSec === "mensagens") {
+      var mWrap = document.getElementById("op-msg-list");
+      if (mWrap) {
+        mWrap.innerHTML = store.messages.length
+          ? store.messages.map(function (m) { return '<div style="padding:7px 0;border-bottom:1px solid ' + borderCol + ';"><strong>' + m.title + '</strong>: ' + m.body + '</div>'; }).join("")
+          : '<div style="color:' + subCol + ';">Nenhum modelo salvo ainda.</div>';
+      }
+      var mAdd = document.getElementById("op-msg-add");
+      if (mAdd) mAdd.addEventListener("click", function () {
+        var t = document.getElementById("op-msg-title").value.trim();
+        var b = document.getElementById("op-msg-body").value.trim();
+        if (!t || !b) return;
+        store.messages.unshift({ id: "m_" + Date.now(), title: t, body: b });
+        saveLocalOpStore(store);
+        rerenderOpCard();
+      });
+    } else if (activeSec === "associacoes") {
+      var aWrap = document.getElementById("op-as-list");
+      if (aWrap) {
+        aWrap.innerHTML = store.associations.length
+          ? store.associations.map(function (a) { return '<div style="padding:7px 0;border-bottom:1px solid ' + borderCol + ';"><strong>' + a.name + '</strong> · Tag: ' + a.tag + '</div>'; }).join("")
+          : '<div style="color:' + subCol + ';">Nenhuma associação salva ainda.</div>';
+      }
+      var aAdd = document.getElementById("op-as-add");
+      if (aAdd) aAdd.addEventListener("click", function () {
+        var n = document.getElementById("op-as-name").value.trim();
+        var mid = document.getElementById("op-as-msg").value;
+        if (!n || !mid) return;
+        store.associations.unshift({ id: "a_" + Date.now(), name: n, tag: document.getElementById("op-as-tag").value.trim() || "Geral", messageId: mid });
+        saveLocalOpStore(store);
+        rerenderOpCard();
+      });
+    } else if (activeSec === "agendamentos") {
+      var apWrap = document.getElementById("op-ap-list");
+      if (apWrap) {
+        apWrap.innerHTML = store.appointments.length
+          ? store.appointments.map(function (ap) { return '<div style="padding:7px 0;border-bottom:1px solid ' + borderCol + ';"><strong>' + ap.date + ' às ' + ap.time + '</strong> · ' + ap.name + ' (' + ap.phone + ')</div>'; }).join("")
+          : '<div style="color:' + subCol + ';">Nenhum agendamento cadastrado.</div>';
+      }
+      var apAdd = document.getElementById("op-ap-add");
+      if (apAdd) apAdd.addEventListener("click", function () {
+        var nm = document.getElementById("op-ap-name").value.trim();
+        var ph = document.getElementById("op-ap-phone").value.trim();
+        if (!nm || !ph) return;
+        store.appointments.unshift({ id: "ap_" + Date.now(), name: nm, phone: ph, date: document.getElementById("op-ap-date").value, time: document.getElementById("op-ap-time").value });
+        saveLocalOpStore(store);
+        rerenderOpCard();
+      });
+    } else if (activeSec === "disparar") {
+      var dpWrap = document.getElementById("op-dp-list");
+      if (dpWrap) {
+        dpWrap.innerHTML = store.queue.length
+          ? store.queue.map(function (q) { return '<div style="padding:7px 0;border-bottom:1px solid ' + borderCol + ';"><strong>' + q.name + '</strong> (' + q.phone + ') · ' + q.status + '</div>'; }).join("")
+          : '<div style="color:' + subCol + ';">Fila vazia. Selecione uma associação acima para enfileirar o disparo.</div>';
+      }
+      var dpRun = document.getElementById("op-dp-run");
+      if (dpRun) dpRun.addEventListener("click", function () {
+        var aid = document.getElementById("op-dp-assoc").value;
+        var assoc = store.associations.filter(function (x) { return x.id === aid; })[0];
+        if (!assoc) return;
+        var matched = store.contacts.filter(function (c) { return c.tag.toLowerCase() === assoc.tag.toLowerCase(); });
+        for (var k = 0; k < matched.length; k++) {
+          store.queue.unshift({ id: "q_" + Date.now() + "_" + k, name: matched[k].name, phone: matched[k].phone, status: "Enfileirado com cadência Anti-Ban" });
+        }
+        saveLocalOpStore(store);
+        rerenderOpCard();
+      });
+    }
+  }
+
+  function syncAllScreenStates() {
+    readRealWhatsAppConnection();
+    ensureAllNavigationMenuOptions();
+    var activeSec = detectActiveSection();
+    syncZeldaStatusVisibilityAndLabels(activeSec);
+    mountOrSyncSerenaDashboardDateBar(activeSec);
+    mountOrSyncZeldaCard(activeSec);
+    mountOrSyncSeparatedSettingsScreens(activeSec);
+    mountOrSyncEmbeddedOperationalTab(activeSec);
+  }
+
+  var scheduled = false;
+  function scheduleCheck() {
+    if (scheduled) return;
+    scheduled = true;
+    setTimeout(function () {
+      scheduled = false;
+      syncAllScreenStates();
+    }, 200);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", scheduleCheck);
+  } else {
+    scheduleCheck();
+  }
+  refreshConnectionAndMetricsFromApis();
+  setInterval(refreshConnectionAndMetricsFromApis, 6000);
+
+  // MutationObserver enxuto: observa APENAS childList (sem attributes!) e ignora nós próprios -> ZERO FLICKER!
+  var obs = new MutationObserver(function (mutations) {
+    var relevant = false;
+    for (var i = 0; i < mutations.length; i++) {
+      var m = mutations[i];
+      if (m.target && m.target.closest && m.target.closest("[data-serena-managed='1']")) continue;
+      if (m.addedNodes && m.addedNodes.length > 0) {
+        for (var a = 0; a < m.addedNodes.length; a++) {
+          var an = m.addedNodes[a];
+          if (an.nodeType === 1 && an.getAttribute && an.getAttribute("data-serena-managed") === "1") continue;
+          relevant = true;
+          break;
+        }
+      }
+      if (relevant) break;
+    }
+    if (relevant) scheduleCheck();
+  });
+  if (document.documentElement) {
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  document.addEventListener("click", function (ev) {
+    var navHit = isNavOrTabElement(ev.target);
+    if (navHit) {
+      var mapped = mapLabelToCanonicalSection(navHit.label);
+      if (mapped === "config_zelda") {
+        activeSettingsScreen = "zelda";
+      } else if (mapped === "config_geral") {
+        activeSettingsScreen = "geral";
+      }
+      lastClickedSection = mapped;
+      scheduleCheck();
+    }
+  }, true);
+})();
+</script>
+<!-- SERENA_CLINIC_CONFIG_END -->

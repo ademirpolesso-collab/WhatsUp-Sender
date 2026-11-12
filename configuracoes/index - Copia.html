@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Configurações da Clínica - mm-sender</title>
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { margin: 0; padding: 24px; background: #f8fafc; color: #0f172a; }
+    .card { max-width: 680px; margin: 0 auto; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; }
+    h1 { margin: 0 0 6px; font-size: 20px; }
+    p.sub { margin: 0 0 20px; font-size: 13px; color: #64748b; }
+    label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; color: #1e293b; }
+    input { width: 100%; height: 40px; padding: 0 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; }
+    button { margin-top: 20px; height: 42px; padding: 0 20px; border: 0; border-radius: 8px; background: #0f172a; color: #fff; font-weight: 600; cursor: pointer; }
+    button:hover { background: #1e293b; }
+    .status { margin-top: 12px; font-size: 13px; color: #047857; display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Configurações da Clínica (Serena v2)</h1>
+    <p class="sub">Altere o Nome e o Endereço da Clínica. Todas as mensagens da Serena usam estes dados dinamicamente em tempo real.</p>
+    <form id="cfgForm">
+      <label for="clinicName">Nome da Clínica</label>
+      <input id="clinicName" name="clinicName" required placeholder="Ex: Odonto Excellence" />
+
+      <label for="clinicAddress">Endereço Completo da Clínica</label>
+      <input id="clinicAddress" name="clinicAddress" required placeholder="Ex: Av. Brasil, 1200 - Sala 304, Centro" />
+
+      <label for="parkingInfo">Estacionamento / Referência (Opcional)</label>
+      <input id="parkingInfo" name="parkingInfo" placeholder="Ex: Estacionamento conveniado no local" />
+
+      <button type="submit">Salvar Configurações</button>
+      <div id="statusMsg" class="status">Configurações salvas e aplicadas em toda a aplicação!</div>
+    </form>
+  </div>
+  <script>
+    async function init() {
+      try {
+        if (window.electronAPI && window.electronAPI.getClinicSettings) {
+          const cfg = await window.electronAPI.getClinicSettings();
+          fillForm(cfg);
+          return;
+        }
+        const res = await fetch("/api/configuracoes");
+        if (res.ok) fillForm(await res.json());
+      } catch {}
+    }
+    function fillForm(cfg) {
+      if (!cfg) return;
+      document.getElementById("clinicName").value = cfg.clinicName || "";
+      document.getElementById("clinicAddress").value = cfg.clinicAddress || cfg.address || "";
+      document.getElementById("parkingInfo").value = cfg.parkingInfo || "";
+    }
+    document.getElementById("cfgForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const payload = {
+        clinicName: document.getElementById("clinicName").value.trim(),
+        clinicAddress: document.getElementById("clinicAddress").value.trim(),
+        parkingInfo: document.getElementById("parkingInfo").value.trim(),
+      };
+      if (window.electronAPI && window.electronAPI.saveClinicSettings) {
+        await window.electronAPI.saveClinicSettings(payload);
+      } else {
+        await fetch("/api/configuracoes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+      const st = document.getElementById("statusMsg");
+      st.style.display = "block";
+      setTimeout(() => { st.style.display = "none"; }, 2500);
+    });
+    init();
+  </script>
+</body>
+</html>

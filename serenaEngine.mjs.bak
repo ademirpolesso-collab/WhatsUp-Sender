@@ -1,0 +1,42 @@
+<!-- Seção de Manutenção do Banco na Tela de Configurações -->
+<div style="margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 20px;">
+  <h3 style="color: #e53e3e; font-size: 16px; font-weight: bold;">Zerar Dados e Estatísticas</h3>
+  <p style="color: #718096; font-size: 13px;">
+    Esta ação apaga todos os leads cadastrados, históricos de mensagens e desmarca os horários reservados na agenda. 
+    <strong>As configurações de Nome da Clínica, Endereço e Delays SERÃO PRESERVADAS.</strong>
+  </p>
+
+  <button 
+    onclick="solicitarResetBanco()" 
+    style="background-color: #e53e3e; color: white; padding: 10px 18px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer;">
+    🗑️ Zerar Banco de Dados
+  </button>
+</div>
+
+<script>
+async function solicitarResetBanco() {
+  const confirmacao1 = confirm("⚠️ ATENÇÃO!\n\nVocê tem certeza de que deseja zerar o banco de dados?\nTodos os leads e métricas de agendamento serão apagados.");
+  
+  if (!confirmacao1) return;
+
+  const confirmacao2 = prompt("Para confirmar a exclusão definitiva, digite ZERAR no campo abaixo:");
+
+  if (confirmacao2 && confirmacao2.trim().toUpperCase() === "ZERAR") {
+    try {
+      const response = await fetch("/api/reset-database", { method: "POST" });
+      const data = await response.json();
+      
+      if (data.success) {
+        alert("✅ Banco de dados zerado com sucesso! As configurações da clínica foram mantidas.");
+        window.location.reload();
+      } else {
+        alert("❌ Erro ao zerar banco: " + (data.error || "Tente novamente."));
+      }
+    } catch (err) {
+      alert("❌ Falha na comunicação com o servidor.");
+    }
+  } else {
+    alert("Operação cancelada. O texto de confirmação digitado esteve incorreto.");
+  }
+}
+</script>

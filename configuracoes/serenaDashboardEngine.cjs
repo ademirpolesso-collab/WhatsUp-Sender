@@ -1,0 +1,935 @@
+// configuracoes/serenaDashboardEngine.cjs
+// Dashboard Gerencial Corporativo da Serena (CRM, Funil, Operação, Perdas, Interesses, Origens, SLA 72h/24h e Alertas Recepção)
+
+process.env.TZ = "America/Sao_Paulo";
+
+const fs = require("fs");
+const path = require("path");
+const { resolveWritableDataDir } = require("./configManager.cjs");
+
+const BRASILIA_TZ = "America/Sao_Paulo";
+
+function getBrtTodayIso(dateObj = new Date()) {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: BRASILIA_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const map = {};
+  for (const p of fmt.formatToParts(dateObj)) {
+    map[p.type] = p.value;
+  }
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+// Converte qualquer data/timestamp para YYYY-MM-DD em America/Sao_Paulo
+function toBrtDateKey(val) {
+  if (val === null || val === undefined || val === "") return "";
+  if (typeof val === "number" && Number.isFinite(val) && val > 0) {
+    const ms = val < 1e11 ? val * 1000 : val;
+    return getBrtTodayIso(new Date(ms));
+  }
+  const s = String(val).trim();
+  if (!s) return "";
+  const pureIso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (pureIso) return `${pureIso[1]}-${pureIso[2]}-${pureIso[3]}`;
+
+  const brFmt = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (brFmt) return `${brFmt[3]}-${brFmt[2]}-${brFmt[1]}`;
+
+  const isoTs = s.match(/^(\d{4})-(\d{2})-(\d{2})[T\s]/);
+  if (isoTs) {
+    if (/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) {
+      const d = new Date(s);
+      if (!Number.isNaN(d.getTime())) return getBrtTodayIso(d);
+    }
+    return `${isoTs[1]}-${isoTs[2]}-${isoTs[3]}`;
+  }
+
+  if (/^\d{10,13}$/.test(s)) {
+    const n = Number(s);
+    const ms = n < 1e11 ? n * 1000 : n;
+    return getBrtTodayIso(new Date(ms));
+  }
+
+  const parsed = new Date(s);
+  if (!Number.isNaN(parsed.getTime())) return getBrtTodayIso(parsed);
+  return "";
+}
+
+function normalizeLeadPhoneKey(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  if (s.endsWith("@g.us") || s.endsWith("@broadcast") || s === "status@broadcast") return "";
+  const left = s.split("@")[0];
+  const digits = left.replace(/\D+/g, "");
+  if (digits.length < 8) return "";
+  return digits.length > 11 && digits.startsWith("55") ? digits.slice(2) : digits;
+}
+
+function getEventsPaths() {
+  const baseDir = resolveWritableDataDir();
+  const list = [path.join(baseDir, "dados", "serena-daily-events.json")];
+  if (process.env.APPDATA) {
+    list.push(path.join(process.env.APPDATA, "mm-sender", "dados", "serena-daily-events.json"));
+  }
+  if (fs.existsSync(path.join(process.cwd(), "configuracoes", "configManager.cjs"))) {
+    list.push(path.join(process.cwd(), "dados", "serena-daily-events.json"));
+  }
+  return Array.from(new Set(list));
+}
+
+function loadDailyEvents() {
+  for (const p of getEventsPaths()) {
+    try {
+      if (fs.existsSync(p)) {
+        const parsed = JSON.parse(fs.readFileSync(p, "utf-8"));
+        if (parsed && typeof parsed === "object" && parsed.leads) {
+          if (!Array.isArray(parsed.opEvents)) parsed.opEvents = [];
+          if (!Array.isArray(parsed.receptionAlerts)) parsed.receptionAlerts = [];
+          return parsed;
+        }
+      }
+    } catch (_e) {}
+  }
+  return { leads: {}, opEvents: [], receptionAlerts: [], updatedAt: new Date().toISOString() };
+}
+
+function saveDailyEvents(store) {
+  const safe = store && typeof store === "object" ? store : { leads: {}, opEvents: [], receptionAlerts: [] };
+  if (!Array.isArray(safe.opEvents)) safe.opEvents = [];
+  if (!Array.isArray(safe.receptionAlerts)) safe.receptionAlerts = [];
+  safe.updatedAt = new Date().toISOString();
+  const raw = JSON.stringify(safe, null, 2);
+  for (const p of getEventsPaths()) {
+    try {
+      fs.mkdirSync(path.dirname(p), { recursive: true });
+      fs.writeFileSync(p, raw, "utf-8");
+    } catch (_e) {}
+  }
+  return safe;
+}
+
+function ensureLeadBucket(store, phoneKey, rawPhone, pushName, dateKey) {
+  if (!store.leads[phoneKey]) {
+    store.leads[phoneKey] = {
+      phone: String(rawPhone || phoneKey),
+      name: String(pushName || "").trim(),
+      firstSeenDate: dateKey,
+      lastInboundDate: dateKey,
+      createdAtEpochMs: Date.now(),
+      lastInteractionEpochMs: Date.now(),
+      inboundDates: [dateKey],
+      repliedDates: [],
+      qualifiedDates: [],
+      offeredDates: [],
+      bookedDates: [],
+      followupDates: [],
+      handoffDates: [],
+      lostDates: [],
+      concludedDates: [],
+      crcDates: [],
+      inboundCountByDate: {},
+      repliedCountByDate: {},
+      status: "recebido",
+      stage: "ACOLHIMENTO",
+      origem: "whatsapp",
+      interesse: "avaliacao",
+      motivoPerda: null,
+      pacienteExistente: false,
+      consentimentoLgpd: false,
+      crcAssumiu: false,
+      compareceu: false,
+      tratamentoIniciou: false,
+      unreadForHuman: true,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  const item = store.leads[phoneKey];
+  if (pushName && !item.name) item.name = String(pushName).trim();
+  for (const arrField of [
+    "inboundDates",
+    "repliedDates",
+    "qualifiedDates",
+    "offeredDates",
+    "bookedDates",
+    "followupDates",
+    "handoffDates",
+    "lostDates",
+    "concludedDates",
+    "crcDates",
+  ]) {
+    if (!Array.isArray(item[arrField])) item[arrField] = [];
+  }
+  if (!item.inboundCountByDate || typeof item.inboundCountByDate !== "object") item.inboundCountByDate = {};
+  if (!item.repliedCountByDate || typeof item.repliedCountByDate !== "object") item.repliedCountByDate = {};
+  if (!item.status) item.status = "recebido";
+  if (!item.origem) item.origem = "whatsapp";
+  if (!item.interesse) item.interesse = "avaliacao";
+  return item;
+}
+
+function addUniqueDate(arr, d) {
+  if (d && !arr.includes(d)) arr.push(d);
+}
+
+const recentInbound = new Map();
+
+function recordLeadInbound(phone, pushName = "", _rawText = "", ts = null) {
+  const key = normalizeLeadPhoneKey(phone);
+  if (!key) return null;
+  const sig = String(_rawText || "").trim();
+  const prev = recentInbound.get(key);
+  const nowMs = Date.now();
+  if (sig && prev && prev.sig === sig && nowMs - prev.at < 3000) return null;
+  recentInbound.set(key, { sig, at: nowMs });
+  const dateKey = toBrtDateKey(ts) || getBrtTodayIso();
+  const store = loadDailyEvents();
+  const item = ensureLeadBucket(store, key, phone, pushName, dateKey);
+  if (!item.firstSeenDate) item.firstSeenDate = dateKey;
+  item.lastInboundDate = dateKey;
+  item.lastInteractionEpochMs = Date.now();
+  addUniqueDate(item.inboundDates, dateKey);
+  item.inboundCountByDate[dateKey] = (Number(item.inboundCountByDate[dateKey]) || 0) + 1;
+  item.unreadForHuman = true;
+  item.updatedAt = new Date().toISOString();
+  saveDailyEvents(store);
+  return item;
+}
+
+function recordSerenaReply(phone, stage = "", ts = null) {
+  const key = normalizeLeadPhoneKey(phone);
+  if (!key) return null;
+  const dateKey = toBrtDateKey(ts) || getBrtTodayIso();
+  const store = loadDailyEvents();
+  const item = ensureLeadBucket(store, key, phone, "", dateKey);
+  addUniqueDate(item.repliedDates, dateKey);
+  item.repliedCountByDate[dateKey] = (Number(item.repliedCountByDate[dateKey]) || 0) + 1;
+  if (stage) item.stage = stage;
+  item.updatedAt = new Date().toISOString();
+  saveDailyEvents(store);
+  return item;
+}
+
+function recordLeadBooked(phone, _slotIsoDate = "", ts = null) {
+  const key = normalizeLeadPhoneKey(phone);
+  if (!key) return null;
+  const dateKey = toBrtDateKey(ts) || getBrtTodayIso();
+  const store = loadDailyEvents();
+  const item = ensureLeadBucket(store, key, phone, "", dateKey);
+  addUniqueDate(item.bookedDates, dateKey);
+  addUniqueDate(item.inboundDates, dateKey);
+  item.status = "agendado";
+  item.stage = "AGENDADO";
+  item.updatedAt = new Date().toISOString();
+  saveDailyEvents(store);
+  return item;
+}
+
+function recordAppointmentConfirmed(phone, ts = null) {
+  const key = normalizeLeadPhoneKey(phone);
+  if (!key) return null;
+  const dateKey = toBrtDateKey(ts) || getBrtTodayIso();
+  const store = loadDailyEvents();
+  const item = ensureLeadBucket(store, key, phone, "", dateKey);
+  addUniqueDate(item.inboundDates, dateKey);
+  item.status = "agendado";
+  item.stage = "AGENDADO";
+  item.confirmedPresence = true;
+  item.updatedAt = new Date().toISOString();
+  saveDailyEvents(store);
+  return item;
+}
+
+function recordLeadHandoff(phone, tag = "", ts = null) {
+  const key = normalizeLeadPhoneKey(phone);
+  if (!key) return null;
+  const dateKey = toBrtDateKey(ts) || getBrtTodayIso();
+  const store = loadDailyEvents();
+  const item = ensureLeadBucket(store, key, phone, "", dateKey);
+  addUniqueDate(item.handoffDates, dateKey);
+  addUniqueDate(item.inboundDates, dateKey);
+  item.status = "atendimento_humano";
+  item.stage = "TRANSBORDO_HUMANO";
+  if (tag) item.handoffTag = tag;
+  item.unreadForHuman = true;
+  item.updatedAt = new Date().toISOString();
+  saveDailyEvents(store);
+  return item;
+}
+
+function syncLeadCrmSnapshot(phone, crmPatch = {}) {
+  const key = normalizeLeadPhoneKey(phone);
+  if (!key) return null;
+  const dateKey = getBrtTodayIso();
+  const store = loadDailyEvents();
+  const item = ensureLeadBucket(store, key, phone, crmPatch.name || "", dateKey);
+  if (crmPatch.name) item.name = String(crmPatch.name).trim();
+  if (crmPatch.status) {
+    item.status = String(crmPatch.status);
+    if (item.status === "qualificado") addUniqueDate(item.qualifiedDates, dateKey);
+    if (item.status === "agendamento_oferecido") {
+      addUniqueDate(item.qualifiedDates, dateKey);
+      addUniqueDate(item.offeredDates, dateKey);
+    }
+    if (item.status === "agendado" && crmPatch.markBookedToday) {
+      addUniqueDate(item.qualifiedDates, dateKey);
+      addUniqueDate(item.offeredDates, dateKey);
+      addUniqueDate(item.bookedDates, dateKey);
+    }
+    if (item.status === "followup") addUniqueDate(item.followupDates, dateKey);
+    if (item.status === "atendimento_humano") addUniqueDate(item.handoffDates, dateKey);
+    if (item.status === "perdido") addUniqueDate(item.lostDates, dateKey);
+    if (item.status === "concluido") addUniqueDate(item.concludedDates, dateKey);
+  }
+  if (crmPatch.stage) item.stage = String(crmPatch.stage);
+  if (crmPatch.origem) item.origem = String(crmPatch.origem);
+  if (crmPatch.interesse) item.interesse = String(crmPatch.interesse);
+  if (crmPatch.motivoPerda !== undefined) item.motivoPerda = crmPatch.motivoPerda;
+  if (crmPatch.pacienteExistente !== undefined) item.pacienteExistente = Boolean(crmPatch.pacienteExistente);
+  if (crmPatch.consentimentoLgpd !== undefined) item.consentimentoLgpd = Boolean(crmPatch.consentimentoLgpd);
+  if (crmPatch.crcAssumiu !== undefined) {
+    item.crcAssumiu = Boolean(crmPatch.crcAssumiu);
+    if (item.crcAssumiu) addUniqueDate(item.crcDates, dateKey);
+  }
+  if (crmPatch.compareceu !== undefined) item.compareceu = Boolean(crmPatch.compareceu);
+  if (crmPatch.tratamentoIniciou !== undefined) item.tratamentoIniciou = Boolean(crmPatch.tratamentoIniciou);
+  if (crmPatch.lastInteractionEpochMs) item.lastInteractionEpochMs = Number(crmPatch.lastInteractionEpochMs);
+  item.updatedAt = new Date().toISOString();
+  saveDailyEvents(store);
+  return item;
+}
+
+function recordOperationEvent(type, phone = "", ts = null) {
+  const allowed = new Set(["reagendamento", "cancelamento", "comparecimento", "tratamento_iniciou"]);
+  if (!allowed.has(type)) return null;
+  const dateKey = toBrtDateKey(ts) || getBrtTodayIso();
+  const store = loadDailyEvents();
+  const key = normalizeLeadPhoneKey(phone);
+  store.opEvents.unshift({
+    id: `op-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    type,
+    phoneKey: key || "",
+    dateIso: dateKey,
+    createdAt: new Date().toISOString(),
+  });
+  if (store.opEvents.length > 500) store.opEvents = store.opEvents.slice(0, 500);
+  if (key && store.leads[key]) {
+    if (type === "comparecimento") {
+      store.leads[key].compareceu = true;
+      store.leads[key].status = "concluido";
+      addUniqueDate(store.leads[key].concludedDates, dateKey);
+    } else if (type === "tratamento_iniciou") {
+      store.leads[key].compareceu = true;
+      store.leads[key].tratamentoIniciou = true;
+      store.leads[key].status = "concluido";
+      addUniqueDate(store.leads[key].concludedDates, dateKey);
+    } else if (type === "cancelamento") {
+      store.leads[key].status = "qualificado";
+    }
+  }
+  saveDailyEvents(store);
+  return true;
+}
+
+function recordReceptionAlert(alertObj) {
+  if (!alertObj || typeof alertObj !== "object") return null;
+  const store = loadDailyEvents();
+  const entry = {
+    id: alertObj.id || `rec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    type: alertObj.type || "atendimento_humano",
+    priority: alertObj.priority || "normal",
+    leadPhone: String(alertObj.leadPhone || ""),
+    leadName: String(alertObj.leadName || ""),
+    targetWhatsapp: String(alertObj.targetWhatsapp || ""),
+    formattedMessage: String(alertObj.formattedMessage || ""),
+    dateIso: getBrtTodayIso(),
+    createdAt: new Date().toLocaleTimeString("pt-BR", { timeZone: BRASILIA_TZ, hour: "2-digit", minute: "2-digit" }),
+  };
+  store.receptionAlerts.unshift(entry);
+  if (store.receptionAlerts.length > 100) store.receptionAlerts = store.receptionAlerts.slice(0, 100);
+  saveDailyEvents(store);
+  return entry;
+}
+
+function getReceptionAlerts() {
+  const store = loadDailyEvents();
+  return Array.isArray(store.receptionAlerts) ? store.receptionAlerts : [];
+}
+
+function syncSlaLossToAgenda(losses) {
+  if (!losses.size) return;
+  try {
+    const file = path.join(resolveWritableDataDir(), "dados", "serena-db.json");
+    if (!fs.existsSync(file)) return;
+    const db = JSON.parse(fs.readFileSync(file, "utf-8"));
+    let changed = false;
+    for (const lead of Object.values(db.leads || {})) {
+      const reason = lead && losses.get(normalizeLeadPhoneKey(lead.phone || lead.jid));
+      if (!reason || lead.status === "perdido") continue;
+      lead.status = "perdido";
+      lead.motivoPerda = reason;
+      changed = true;
+    }
+    if (changed) fs.writeFileSync(file, JSON.stringify(db, null, 2), "utf-8");
+  } catch (_e) {}
+}
+
+function runSlaSweep(nowMs = Date.now()) {
+  const store = loadDailyEvents();
+  const SLA_72H = 72 * 3_600_000;
+  const SLA_24H = 24 * 3_600_000;
+  const todayIso = getBrtTodayIso(new Date(nowMs));
+  let updated = 0;
+  const losses = new Map();
+
+  for (const [key, l] of Object.entries(store.leads || {})) {
+    if (!l || l.crcAssumiu) continue;
+    const elapsed = nowMs - Number(l.lastInteractionEpochMs || l.createdAtEpochMs || nowMs);
+    if (l.status === "recebido" && elapsed >= SLA_72H) {
+      l.status = "perdido";
+      l.motivoPerda = "sem_resposta";
+      addUniqueDate(l.lostDates || (l.lostDates = []), todayIso);
+      losses.set(normalizeLeadPhoneKey(l.phone || key), l.motivoPerda);
+      updated += 1;
+    } else if (l.status === "agendamento_oferecido" && elapsed >= SLA_24H) {
+      l.status = "perdido";
+      l.motivoPerda = "abandono_conversa";
+      addUniqueDate(l.lostDates || (l.lostDates = []), todayIso);
+      losses.set(normalizeLeadPhoneKey(l.phone || key), l.motivoPerda);
+      updated += 1;
+    }
+  }
+  if (updated > 0) {
+    saveDailyEvents(store);
+    syncSlaLossToAgenda(losses);
+  }
+  return updated;
+}
+
+function normalizeOriginKey(val) {
+  const low = String(val || "").trim().toLowerCase();
+  if (["google", "instagram", "facebook", "indicacao", "whatsapp", "site", "outros"].includes(low)) return low;
+  if (/insta/i.test(low)) return "instagram";
+  if (/face/i.test(low)) return "facebook";
+  if (/goog|pesquis|mapa/i.test(low)) return "google";
+  if (/indic|amig|famil/i.test(low)) return "indicacao";
+  if (/site/i.test(low)) return "site";
+  if (/whats|campanha|disparo/i.test(low)) return "whatsapp";
+  return "whatsapp";
+}
+
+function normalizeInterestKey(val) {
+  const low = String(val || "").trim().toLowerCase();
+  if (["implante", "ortodontia", "estetica", "limpeza", "urgencia", "avaliacao", "outros"].includes(low)) return low;
+  if (/implant|protes/i.test(low)) return "implante";
+  if (/orto|aparelh|alinhad/i.test(low)) return "ortodontia";
+  if (/estetic|claream|lente|facet/i.test(low)) return "estetica";
+  if (/limpez|profilax/i.test(low)) return "limpeza";
+  if (/dor|urgen|emerg|quebr|inchad/i.test(low)) return "urgencia";
+  if (/avalia|check/i.test(low)) return "avaliacao";
+  return "avaliacao";
+}
+
+function normalizeLossKey(val) {
+  const low = String(val || "").trim().toLowerCase();
+  const valid = [
+    "sem_resposta",
+    "abandono_conversa",
+    "sem_interesse",
+    "pesquisando",
+    "comparando",
+    "preco",
+    "horario_incompativel",
+    "preferiu_concorrente",
+    "optout",
+    "outros",
+  ];
+  return valid.includes(low) ? low : "outros";
+}
+
+function collectUnifiedLeadRecords() {
+  runSlaSweep();
+  const unified = new Map();
+  function upsertRecord(phoneRaw, patch) {
+    const key = normalizeLeadPhoneKey(phoneRaw);
+    if (!key) return;
+    if (!unified.has(key)) {
+      unified.set(key, {
+        key,
+        phone: String(phoneRaw || key),
+        name: "",
+        firstSeenDate: "",
+        inboundDates: new Set(),
+        repliedDates: new Set(),
+        qualifiedDates: new Set(),
+        offeredDates: new Set(),
+        bookedDates: new Set(),
+        followupDates: new Set(),
+        handoffDates: new Set(),
+        lostDates: new Set(),
+        concludedDates: new Set(),
+        crcDates: new Set(),
+        inboundCountByDate: {},
+        repliedCountByDate: {},
+        status: "recebido",
+        origem: "whatsapp",
+        interesse: "avaliacao",
+        motivoPerda: null,
+        crcAssumiu: false,
+        compareceu: false,
+        tratamentoIniciou: false,
+        isBookedEver: false,
+        isHandoffEver: false,
+        unreadForHuman: false,
+      });
+    }
+    const rec = unified.get(key);
+    if (patch.name && !rec.name) rec.name = String(patch.name);
+    if (patch.firstSeenDate) {
+      if (!rec.firstSeenDate || patch.firstSeenDate < rec.firstSeenDate) {
+        rec.firstSeenDate = patch.firstSeenDate;
+      }
+      rec.inboundDates.add(patch.firstSeenDate);
+    }
+    for (const [patchKey, setField] of [
+      ["inboundDates", "inboundDates"],
+      ["repliedDates", "repliedDates"],
+      ["qualifiedDates", "qualifiedDates"],
+      ["offeredDates", "offeredDates"],
+      ["bookedDates", "bookedDates"],
+      ["followupDates", "followupDates"],
+      ["handoffDates", "handoffDates"],
+      ["lostDates", "lostDates"],
+      ["concludedDates", "concludedDates"],
+      ["crcDates", "crcDates"],
+    ]) {
+      if (Array.isArray(patch[patchKey])) {
+        for (const d of patch[patchKey]) {
+          if (d) {
+            rec[setField].add(d);
+            if (setField === "bookedDates") rec.isBookedEver = true;
+            if (setField === "handoffDates") rec.isHandoffEver = true;
+          }
+        }
+      }
+    }
+    if (patch.inboundCountByDate && typeof patch.inboundCountByDate === "object") {
+      for (const [dk, cnt] of Object.entries(patch.inboundCountByDate)) {
+        rec.inboundCountByDate[dk] = Math.max(Number(rec.inboundCountByDate[dk] || 0), Number(cnt || 0));
+      }
+    }
+    if (patch.repliedCountByDate && typeof patch.repliedCountByDate === "object") {
+      for (const [dk, cnt] of Object.entries(patch.repliedCountByDate)) {
+        rec.repliedCountByDate[dk] = Math.max(Number(rec.repliedCountByDate[dk] || 0), Number(cnt || 0));
+      }
+    }
+    if (patch.status) rec.status = String(patch.status);
+    if (patch.origem) rec.origem = normalizeOriginKey(patch.origem);
+    if (patch.interesse) rec.interesse = normalizeInterestKey(patch.interesse);
+    if (patch.motivoPerda) rec.motivoPerda = normalizeLossKey(patch.motivoPerda);
+    if (patch.crcAssumiu) rec.crcAssumiu = true;
+    if (patch.compareceu) rec.compareceu = true;
+    if (patch.tratamentoIniciou) rec.tratamentoIniciou = true;
+    if (patch.isBookedEver) rec.isBookedEver = true;
+    if (patch.isHandoffEver) rec.isHandoffEver = true;
+    if (patch.unreadForHuman) rec.unreadForHuman = true;
+  }
+
+  const store = loadDailyEvents();
+  for (const [k, v] of Object.entries(store.leads || {})) {
+    upsertRecord(v.phone || k, {
+      name: v.name,
+      firstSeenDate: toBrtDateKey(v.firstSeenDate),
+      inboundDates: (v.inboundDates || []).map(toBrtDateKey).filter(Boolean),
+      repliedDates: (v.repliedDates || []).map(toBrtDateKey).filter(Boolean),
+      qualifiedDates: (v.qualifiedDates || []).map(toBrtDateKey).filter(Boolean),
+      offeredDates: (v.offeredDates || []).map(toBrtDateKey).filter(Boolean),
+      bookedDates: (v.bookedDates || []).map(toBrtDateKey).filter(Boolean),
+      followupDates: (v.followupDates || []).map(toBrtDateKey).filter(Boolean),
+      handoffDates: (v.handoffDates || []).map(toBrtDateKey).filter(Boolean),
+      lostDates: (v.lostDates || []).map(toBrtDateKey).filter(Boolean),
+      concludedDates: (v.concludedDates || []).map(toBrtDateKey).filter(Boolean),
+      crcDates: (v.crcDates || []).map(toBrtDateKey).filter(Boolean),
+      inboundCountByDate: v.inboundCountByDate,
+      repliedCountByDate: v.repliedCountByDate,
+      status: v.status,
+      origem: v.origem,
+      interesse: v.interesse,
+      motivoPerda: v.motivoPerda,
+      crcAssumiu: v.crcAssumiu,
+      compareceu: v.compareceu,
+      tratamentoIniciou: v.tratamentoIniciou,
+      isBookedEver: v.status === "agendado" || v.stage === "AGENDADO" || (v.bookedDates && v.bookedDates.length > 0),
+      isHandoffEver: v.status === "atendimento_humano" || v.stage === "TRANSBORDO_HUMANO" || (v.handoffDates && v.handoffDates.length > 0),
+      unreadForHuman: v.unreadForHuman !== false,
+    });
+  }
+
+  const cwdIsMmSender = fs.existsSync(path.join(process.cwd(), "configuracoes", "configManager.cjs"));
+  const candidateDirs = Array.from(
+    new Set(
+      [
+        path.join(resolveWritableDataDir(), "dados"),
+        cwdIsMmSender ? path.join(process.cwd(), "dados") : "",
+        cwdIsMmSender ? path.join(process.cwd(), "data") : "",
+        process.env.APPDATA ? path.join(process.env.APPDATA, "mm-sender", "dados") : "",
+      ].filter(Boolean)
+    )
+  );
+
+  const ignoreFiles = new Set([
+    "clinic-settings.json",
+    "whatsapp-connection-status.json",
+    "serena-daily-events.json",
+    "serena-unread-chats.json",
+    "serena-pending-confirmations.json",
+    "optout-blacklist.json",
+    "zelda-condominio-atividades.json",
+    "zelda-outbox-queue.json",
+    "zelda-pending-sessions.json",
+  ]);
+
+  for (const dir of candidateDirs) {
+    try {
+      if (!fs.existsSync(dir)) continue;
+      const entries = fs.readdirSync(dir);
+      for (const fname of entries) {
+        if (!fname.toLowerCase().endsWith(".json")) continue;
+        if (ignoreFiles.has(fname.toLowerCase())) continue;
+        if (/zelda/i.test(fname)) continue;
+
+        const full = path.join(dir, fname);
+        try {
+          const stat = fs.statSync(full);
+          if (stat.size > 2_000_000) continue;
+          const parsed = JSON.parse(fs.readFileSync(full, "utf-8"));
+          const records = [];
+          if (parsed && typeof parsed === "object" && parsed.leads && typeof parsed.leads === "object") {
+            if (Array.isArray(parsed.leads)) records.push(...parsed.leads);
+            else records.push(...Object.values(parsed.leads));
+          } else if (Array.isArray(parsed) && /(lead|atend|conversa|serena|hist)/i.test(fname)) {
+            records.push(...parsed);
+          }
+          for (const r of records) {
+            if (!r || typeof r !== "object") continue;
+            const ph = r.phone || r.telefone || r.numero || r.number || r.jid || r.chatId || r.remoteJid || "";
+            if (!ph) continue;
+            const cDate = toBrtDateKey(r.createdDate || r.createdAt || r.firstSeenAt || r.dataEntrada || r.date);
+            const uDate = toBrtDateKey(r.lastActivityDate || r.updatedAt || r.lastMessageAt || r.timestamp);
+            const bDate = toBrtDateKey(r.bookedDate || r.scheduledAt || r.agendadoEm);
+            const hDate = toBrtDateKey(r.handoffDate || r.transbordoEm);
+            const actDates = Array.isArray(r.activityDates) ? r.activityDates.map(toBrtDateKey).filter(Boolean) : [];
+            if (cDate) actDates.push(cDate);
+            if (uDate) actDates.push(uDate);
+            const stageUpper = String(r.stage || r.status || "").toUpperCase();
+            const isBooked = Boolean(bDate || r.bookedSlotId || /AGENDAD|CONFIRM/i.test(stageUpper));
+            const isHandoff = Boolean(hDate || r.botPaused || /TRANSBORDO|HUMANO/i.test(stageUpper));
+            upsertRecord(ph, {
+              name: r.name || r.nome || r.pushName || "",
+              firstSeenDate: cDate || uDate,
+              inboundDates: actDates,
+              bookedDates: isBooked ? [bDate || cDate].filter(Boolean) : [],
+              handoffDates: isHandoff ? [hDate || cDate].filter(Boolean) : [],
+              status: r.status || (isBooked ? "agendado" : isHandoff ? "atendimento_humano" : undefined),
+              origem: r.origem || r.origin,
+              interesse: r.interesse || r.interest || r.procedureInterest,
+              motivoPerda: r.motivoPerda,
+              crcAssumiu: Boolean(r.crcAssumiu),
+              compareceu: Boolean(r.compareceu),
+              tratamentoIniciou: Boolean(r.tratamentoIniciou),
+              isBookedEver: isBooked,
+              isHandoffEver: isHandoff,
+              unreadForHuman: Boolean(r.unreadByHuman !== false),
+            });
+          }
+        } catch (_inner) {}
+      }
+    } catch (_e) {}
+  }
+
+  return Array.from(unified.values());
+}
+
+function computeDashboardMetrics(dateFilter = "all") {
+  const todayIso = getBrtTodayIso();
+  const rawFilter = String(dateFilter || "all").trim().toLowerCase();
+  const isAll = !rawFilter || rawFilter === "all" || rawFilter === "todos" || rawFilter === "total";
+  const targetDate = isAll ? "all" : toBrtDateKey(dateFilter) || todayIso;
+
+  const store = loadDailyEvents();
+  const records = collectUnifiedLeadRecords();
+  const allDatesSet = new Set([todayIso]);
+
+  const funil = {
+    leads_recebidos: 0,
+    leads_respondidos: 0,
+    leads_qualificados: 0,
+    ofertas_agendamento: 0,
+    leads_agendados: 0,
+    leads_followup: 0,
+    leads_humano: 0,
+    leads_perdidos: 0,
+    atendimentos_concluidos: 0,
+  };
+  const operacao = {
+    reagendamentos: 0,
+    cancelamentos: 0,
+    comparecimentos: 0,
+    tratamentos_iniciados: 0,
+  };
+  const perdas = {
+    sem_resposta: 0,
+    abandono_conversa: 0,
+    sem_interesse: 0,
+    pesquisando: 0,
+    comparando: 0,
+    preco: 0,
+    horario_incompativel: 0,
+    preferiu_concorrente: 0,
+    optout: 0,
+    outros: 0,
+  };
+  const interesses = {
+    implante: 0,
+    ortodontia: 0,
+    estetica: 0,
+    limpeza: 0,
+    urgencia: 0,
+    avaliacao: 0,
+    outros: 0,
+  };
+  const origens = {
+    google: 0,
+    instagram: 0,
+    facebook: 0,
+    indicacao: 0,
+    whatsapp: 0,
+    site: 0,
+    outros: 0,
+  };
+
+  let leadsEntrada = 0;
+  let novosLeads = 0;
+  let atendimentosAtivos = 0;
+  let mensagensRecebidas = 0;
+  let mensagensRespondidas = 0;
+  let agendados = 0;
+  let transbordoHumano = 0;
+  let naoLidas = 0;
+  let crcAtivos = 0;
+  let crcAssumidos = 0;
+
+  for (const rec of records) {
+    for (const d of rec.inboundDates) allDatesSet.add(d);
+    for (const d of rec.bookedDates) allDatesSet.add(d);
+
+    const enteredToday = rec.firstSeenDate === targetDate;
+    const activeToday =
+      isAll ||
+      enteredToday ||
+      rec.inboundDates.has(targetDate) ||
+      rec.repliedDates.has(targetDate) ||
+      rec.bookedDates.has(targetDate) ||
+      rec.handoffDates.has(targetDate) ||
+      rec.followupDates.has(targetDate) ||
+      rec.lostDates.has(targetDate) ||
+      rec.concludedDates.has(targetDate) ||
+      rec.crcDates.has(targetDate);
+
+    if (!activeToday) continue;
+
+    if (rec.crcAssumiu) crcAtivos += 1;
+    if (isAll ? rec.crcDates.size > 0 : rec.crcDates.has(targetDate)) crcAssumidos += 1;
+    funil.leads_recebidos += 1;
+    leadsEntrada += 1;
+    atendimentosAtivos += 1;
+    if (isAll || enteredToday) novosLeads += 1;
+    if (rec.unreadForHuman) naoLidas += 1;
+
+    const origKey = normalizeOriginKey(rec.origem);
+    origens[origKey] = (origens[origKey] || 0) + 1;
+
+    const intKey = normalizeInterestKey(rec.interesse);
+    interesses[intKey] = (interesses[intKey] || 0) + 1;
+
+    const sumIn = isAll
+      ? Object.values(rec.inboundCountByDate).reduce((a, b) => a + Number(b || 0), 0)
+      : Number(rec.inboundCountByDate[targetDate] || 1);
+    const sumOut = isAll
+      ? Object.values(rec.repliedCountByDate).reduce((a, b) => a + Number(b || 0), 0)
+      : Number(rec.repliedCountByDate[targetDate] || (rec.repliedDates.has(targetDate) ? 1 : 0));
+
+    mensagensRecebidas += Math.max(sumIn, 1);
+    mensagensRespondidas += sumOut;
+
+    const st = String(rec.status || "recebido");
+    if (st !== "recebido" || sumIn > 1) {
+      funil.leads_respondidos += 1;
+    }
+    if (
+      ["qualificado", "agendamento_oferecido", "agendado", "followup", "concluido"].includes(st) ||
+      rec.qualifiedDates.size > 0 ||
+      rec.isBookedEver
+    ) {
+      funil.leads_qualificados += 1;
+    }
+    if (
+      ["agendamento_oferecido", "agendado", "followup", "concluido"].includes(st) ||
+      rec.offeredDates.size > 0 ||
+      rec.isBookedEver
+    ) {
+      funil.ofertas_agendamento += 1;
+    }
+
+    const bookedMatch = isAll ? (rec.isBookedEver || rec.bookedDates.size > 0 || st === "agendado" || st === "concluido") : rec.bookedDates.has(targetDate);
+    if (bookedMatch) {
+      funil.leads_agendados += 1;
+      agendados += 1;
+    }
+
+    const followupMatch = isAll ? (st === "followup" || rec.followupDates.size > 0) : rec.followupDates.has(targetDate);
+    if (followupMatch) funil.leads_followup += 1;
+
+    const handoffMatch = isAll ? (rec.isHandoffEver || st === "atendimento_humano") : rec.handoffDates.has(targetDate);
+    if (handoffMatch) {
+      funil.leads_humano += 1;
+      transbordoHumano += 1;
+    }
+
+    const lostMatch = isAll ? st === "perdido" : (st === "perdido" && rec.lostDates.has(targetDate));
+    if (lostMatch) {
+      funil.leads_perdidos += 1;
+      const lossKey = normalizeLossKey(rec.motivoPerda);
+      perdas[lossKey] = (perdas[lossKey] || 0) + 1;
+    }
+
+    const concludedMatch = isAll ? (st === "concluido" || rec.compareceu) : rec.concludedDates.has(targetDate);
+    if (concludedMatch) funil.atendimentos_concluidos += 1;
+
+    if (rec.compareceu && (isAll || rec.concludedDates.has(targetDate))) {
+      operacao.comparecimentos += 1;
+    }
+    if (rec.tratamentoIniciou && (isAll || rec.concludedDates.has(targetDate))) {
+      operacao.tratamentos_iniciados += 1;
+    }
+  }
+
+  for (const ev of store.opEvents || []) {
+    if (!ev || (!isAll && ev.dateIso !== targetDate)) continue;
+    allDatesSet.add(ev.dateIso);
+    if (ev.type === "reagendamento") operacao.reagendamentos += 1;
+    if (ev.type === "cancelamento") operacao.cancelamentos += 1;
+  }
+
+  // CÁLCULO DE KPIS DE CONVERSÃO DERIVADOS (PERCENTUAIS ENRIQUECIDOS)
+  const taxaConversao = funil.leads_recebidos > 0 ? Math.round((funil.leads_agendados / funil.leads_recebidos) * 100) : 0;
+  const taxaComparecimento = funil.leads_agendados > 0 ? Math.round((operacao.comparecimentos / funil.leads_agendados) * 100) : 0;
+  const taxaFechamento = operacao.comparecimentos > 0 ? Math.round((operacao.tratamentos_iniciados / operacao.comparecimentos) * 100) : 0;
+  const taxaHandoff = funil.leads_recebidos > 0 ? Math.round((funil.leads_humano / funil.leads_recebidos) * 100) : 0;
+  const taxaPerda = funil.leads_recebidos > 0 ? Math.round((funil.leads_perdidos / funil.leads_recebidos) * 100) : 0;
+
+  const availableDates = Array.from(allDatesSet).filter(Boolean).sort().reverse();
+
+  return {
+    mode: isAll ? "all" : "day",
+    date: isAll ? "all" : targetDate,
+    todayIso,
+    timezone: BRASILIA_TZ,
+
+    // KPI E TAXAS
+    kpi: {
+      taxaConversao,
+      taxaComparecimento,
+      taxaFechamento,
+      taxaHandoff,
+      taxaPerda,
+    },
+
+    // BLOS DE CONTADORES E CONSOLIDAÇÕES
+    funil,
+    operacao,
+    perdas,
+    interesses,
+    origens,
+
+    // CONTADORES INDIVIDUAIS (TOP CARDS)
+    totais: {
+      leadsEntrada,
+      novosLeads,
+      atendimentosAtivos,
+      mensagensRecebidas,
+      mensagensRespondidas,
+      agendados,
+      transbordoHumano,
+      naoLidas,
+      crcAtivos,
+      crcAssumidos,
+    },
+
+    // COMPATIBILIDADE DE VARIÁVEIS SOLTAS DE TOPO
+    crcAtivos,
+    crcAssumidos,
+    receptionAlerts: (store.receptionAlerts || []).slice(0, 20),
+    leadsEntrada,
+    novosLeads,
+    atendimentosAtivos,
+    mensagensRecebidas,
+    mensagensRespondidas,
+    agendados,
+    transbordoHumano,
+    naoLidas,
+    taxaConversao,
+    availableDates,
+  };
+}
+
+function attachLeadTracker(clientOrSock) {
+  if (!clientOrSock || typeof clientOrSock !== "object") return clientOrSock;
+  if (clientOrSock.__serenaLeadTrackerAttached) return clientOrSock;
+  clientOrSock.__serenaLeadTrackerAttached = true;
+
+  if (typeof clientOrSock.on === "function") {
+    clientOrSock.on("message", async (msg) => {
+      try {
+        if (!msg || msg.fromMe) return;
+        const chatId = String(msg.from || msg.id?.remote || "");
+        if (!chatId || chatId.endsWith("@g.us") || chatId.endsWith("@broadcast") || chatId === "status@broadcast") return;
+        const body = String(msg.body || "").trim();
+        if (!body) return;
+        let senderPhone = chatId;
+        let pushName = String(msg._data?.notifyName || "");
+        try {
+          if (chatId.endsWith("@lid") && typeof msg.getContact === "function") {
+            const c = await msg.getContact().catch(() => null);
+            if (c && c.number) senderPhone = String(c.number);
+            if (c && !pushName) pushName = String(c.pushname || c.name || "");
+          }
+        } catch (_eLid) {}
+        recordLeadInbound(senderPhone, pushName, body, msg.timestamp || null);
+      } catch (_err) {}
+    });
+  }
+
+  return clientOrSock;
+}
+
+module.exports = {
+  BRASILIA_TZ,
+  getBrtTodayIso,
+  toBrtDateKey,
+  normalizeLeadPhoneKey,
+  recordLeadInbound,
+  recordSerenaReply,
+  recordLeadBooked,
+  recordAppointmentConfirmed,
+  recordLeadHandoff,
+  syncLeadCrmSnapshot,
+  recordOperationEvent,
+  recordReceptionAlert,
+  getReceptionAlerts,
+  runSlaSweep,
+  computeDashboardMetrics,
+  attachLeadTracker,
+};
